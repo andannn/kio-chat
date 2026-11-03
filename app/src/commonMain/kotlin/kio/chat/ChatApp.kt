@@ -3,6 +3,7 @@ package kio.chat
 import io.ktor.http.HttpHeaders
 import kio.async.io.ServerSocket
 import kio.async.io.getEnv
+import kio.chat.util.Config
 import kio.http.*
 import kio.chat.util.Env
 import kio.postgres.conn.PgConnectionPool
@@ -11,9 +12,15 @@ import kio.tls.pem
 import kio.tls.withServerTls
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.html.TagConsumer
+import kotlinx.html.div
+import kotlinx.html.head
+import kotlinx.html.link
+import kotlinx.html.script
+import kotlinx.html.title
 import kotlin.uuid.Uuid
 
-private val DATA_SOURCE = DataSourceType.PRODUCTION
+private val DATA_SOURCE = DataSourceType.MOCK
 
 suspend fun CoroutineScope.chatApp(serverSocket: ServerSocket) {
     val env = loadEnv()
@@ -23,6 +30,21 @@ suspend fun CoroutineScope.chatApp(serverSocket: ServerSocket) {
             CallId { Uuid.random().toString() },
             LoggerInterceptor()
         ) {
+            route("/") {
+                get { call ->
+                    call.respondHtml {
+                        kNoteHead("Chat")
+                        div { +"Hello world" }
+                    }
+                }
+            }
+
+            websocket("/test") { ctx ->
+                for (a in ctx.incoming) {
+                    println("a $a")
+                }
+            }
+
             staticResource(
                 remotePath = "/",
                 basePackage = "resource",
@@ -31,6 +53,15 @@ suspend fun CoroutineScope.chatApp(serverSocket: ServerSocket) {
                 }
             )
         }
+    }
+}
+
+fun TagConsumer<*>.kNoteHead(title: String) {
+    head {
+        script(src = Config.HTMX_MIN_JS) { }
+        script(src = Config.APP_JS) { }
+        link(rel = "stylesheet", href = Config.APP_CSS)
+        title { +title }
     }
 }
 
