@@ -6,7 +6,7 @@ plugins {
 kotlin {
     jvm {
         mainRun {
-            mainClass.set("kio.note.ApplicationKt")
+            mainClass.set("kio.chat.ApplicationKt")
         }
     }
 

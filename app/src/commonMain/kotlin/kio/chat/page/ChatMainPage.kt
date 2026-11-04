@@ -5,10 +5,12 @@ import kio.http.respondHtml
 import kio.chat.util.Config
 import kotlinx.html.*
 
-fun TagConsumer<*>.kNoteHead(title: String) {
+fun TagConsumer<*>.chatHead(title: String, includeAppScript: Boolean = false) {
     head {
+        meta(charset = "utf-8")
+        meta(name = "viewport", content = "width=device-width, initial-scale=1")
         script(src = Config.HTMX_MIN_JS) { }
-        script(src = Config.APP_JS) { }
+        if (includeAppScript) script(src = Config.APP_JS) { }
         link(rel = "stylesheet", href = Config.APP_CSS)
         title { +title }
     }
@@ -16,7 +18,7 @@ fun TagConsumer<*>.kNoteHead(title: String) {
 
 suspend fun CallContext.chatMainPage(noteId: Long? = null) {
     respondHtml {
-        kNoteHead("Chat")
+        chatHead("Chat")
 
         body(classes = "app") {
 

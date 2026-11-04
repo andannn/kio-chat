@@ -10,8 +10,12 @@ window.onload = function () {
     const socket = new WebSocket(`${protocol}//${host}:${port}/test`);
     console.log("socket ", socket);
 
-    socket.addEventListener("open", event => {
-        socket.send("Hello Server!");
-    });
+    socket.onopen = (event) => {
+        event.target.send("Hello Server!");
+    };
+
+    socket.onmessage = (event) => {
+        console.log("event received.", event.data)
+    };
 }
 

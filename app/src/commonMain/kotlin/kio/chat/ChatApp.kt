@@ -1,23 +1,24 @@
 package kio.chat
 
-import io.ktor.http.HttpHeaders
+import io.ktor.http.*
 import kio.async.io.ServerSocket
 import kio.async.io.getEnv
-import kio.chat.util.Config
-import kio.http.*
+import kio.chat.domain.MockRepositoryImpl
+import kio.chat.domain.Repository
+import kio.chat.page.chatHead
 import kio.chat.util.Env
+import kio.http.*
 import kio.postgres.conn.PgConnectionPool
 import kio.postgres.conn.openPgConnection
 import kio.tls.pem
 import kio.tls.withServerTls
+import kio.websocket.WebSocketEvent
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.html.TagConsumer
 import kotlinx.html.div
-import kotlinx.html.head
-import kotlinx.html.link
-import kotlinx.html.script
-import kotlinx.html.title
+import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 private val DATA_SOURCE = DataSourceType.MOCK
@@ -25,43 +26,55 @@ private val DATA_SOURCE = DataSourceType.MOCK
 suspend fun CoroutineScope.chatApp(serverSocket: ServerSocket) {
     val env = loadEnv()
 
+    val repo: Repository = MockRepositoryImpl()
     setupServer(dataSource = DATA_SOURCE, serverSocket, env) {
-        inject(
-            CallId { Uuid.random().toString() },
-            LoggerInterceptor()
-        ) {
-            route("/") {
-                get { call ->
-                    call.respondHtml {
-                        kNoteHead("Chat")
-                        div { +"Hello world" }
+        context(repo) {
+            inject(
+                CallId { Uuid.random().toString() },
+                LoggerInterceptor()
+            ) {
+                chatLoginRoutes()
+
+                inject(AuthSession()) {
+                    route("/") {
+                        get { call ->
+                            call.respondHtml {
+                                chatHead("Chat", includeAppScript = true)
+                                div { +"Hello world" }
+                            }
+                        }
+                    }
+
+                    websocket("/test") { ctx ->
+                        launch {
+                            for (msg in ctx.incoming) {
+                                when (msg) {
+                                    is WebSocketEvent.Binary -> Unit
+                                    is WebSocketEvent.Text -> {
+                                        repo.recordMessage(requireSession().userId, msg.text)
+                                    }
+                                }
+                            }
+                        }
+
+                        launch {
+                            while (true) {
+                                delay(1.seconds)
+                                ctx.outgoing.send(WebSocketEvent.Text("Hello i an ${requireSession().userId}"))
+                            }
+                        }
                     }
                 }
-            }
 
-            websocket("/test") { ctx ->
-                for (a in ctx.incoming) {
-                    println("a $a")
-                }
+                staticResource(
+                    remotePath = "/",
+                    basePackage = "resource",
+                    configHeaders = {
+                        append(HttpHeaders.CacheControl, "public, max-age=31536000, immutable")
+                    }
+                )
             }
-
-            staticResource(
-                remotePath = "/",
-                basePackage = "resource",
-                configHeaders = {
-                    append(HttpHeaders.CacheControl, "public, max-age=31536000, immutable")
-                }
-            )
         }
-    }
-}
-
-fun TagConsumer<*>.kNoteHead(title: String) {
-    head {
-        script(src = Config.HTMX_MIN_JS) { }
-        script(src = Config.APP_JS) { }
-        link(rel = "stylesheet", href = Config.APP_CSS)
-        title { +title }
     }
 }
 

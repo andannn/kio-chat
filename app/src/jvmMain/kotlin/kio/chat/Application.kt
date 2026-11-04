@@ -10,7 +10,7 @@ import java.net.StandardSocketOptions
 import java.nio.channels.ServerSocketChannel
 
 const val HOST_IP = "127.0.0.1"
-const val PORT = 7878
+const val PORT = 7879
 
 fun main(): Unit = runPollEventLoop(Select) {
     val io = currentCoroutineContext().poller.io
