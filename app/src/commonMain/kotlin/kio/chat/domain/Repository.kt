@@ -15,6 +15,8 @@ interface Repository {
     suspend fun createSession(userId: Long): String
     suspend fun getSessionById(sessionId: String): Session?
 
+    suspend fun getMessageList(): List<Message>
+
     fun observeNewMessageFlow() : SharedFlow<Message>
 
     //

@@ -5,20 +5,15 @@ import kio.async.io.ServerSocket
 import kio.async.io.getEnv
 import kio.chat.domain.MockRepositoryImpl
 import kio.chat.domain.Repository
-import kio.chat.page.chatHead
+import kio.chat.page.chatMainPage
 import kio.chat.util.Env
 import kio.http.*
 import kio.postgres.conn.PgConnectionPool
 import kio.postgres.conn.openPgConnection
 import kio.tls.pem
 import kio.tls.withServerTls
-import kio.websocket.WebSocketEvent
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.html.div
-import kotlin.time.Duration.Companion.seconds
 import kotlin.uuid.Uuid
 
 private val DATA_SOURCE = DataSourceType.MOCK
@@ -36,34 +31,8 @@ suspend fun CoroutineScope.chatApp(serverSocket: ServerSocket) {
                 chatLoginRoutes()
 
                 inject(AuthSession()) {
-                    route("/") {
-                        get { call ->
-                            call.respondHtml {
-                                chatHead("Chat", includeAppScript = true)
-                                div { +"Hello world" }
-                            }
-                        }
-                    }
-
-                    websocket("/test") { ctx ->
-                        launch {
-                            for (msg in ctx.incoming) {
-                                when (msg) {
-                                    is WebSocketEvent.Binary -> Unit
-                                    is WebSocketEvent.Text -> {
-                                        repo.recordMessage(requireSession().userId, msg.text)
-                                    }
-                                }
-                            }
-                        }
-
-                        launch {
-                            while (true) {
-                                delay(1.seconds)
-                                ctx.outgoing.send(WebSocketEvent.Text("Hello i an ${requireSession().userId}"))
-                            }
-                        }
-                    }
+                    get("/") { call -> call.chatMainPage() }
+                    messagesRoute()
                 }
 
                 staticResource(

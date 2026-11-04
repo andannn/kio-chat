@@ -7,6 +7,7 @@ object Config {
 
     const val APP_CSS = "/static/app/app.css"
     const val APP_JS = "/static/app/app.js"
+    const val HTMX_WS_JS = "/static/htmx/ws.min.js"
     const val HTMX_MIN_JS = "/static/htmx/htmx.min.js"
 }
 
