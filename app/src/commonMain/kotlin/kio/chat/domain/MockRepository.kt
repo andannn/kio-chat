@@ -3,11 +3,8 @@ package kio.chat.domain
 import kio.chat.util.hashPassword
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 import kotlin.uuid.Uuid
 
-// In-memory development repository. Users and sessions disappear on restart.
 class MockRepositoryImpl : Repository {
     private val users = mutableMapOf<String, User>()
     private val sessions = mutableMapOf<String, Session>()

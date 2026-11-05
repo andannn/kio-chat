@@ -16,7 +16,7 @@ import platform.linux.inet_addr
 import platform.posix.*
 
 const val HOST_IP = "0.0.0.0"
-const val PORT = 8080
+const val PORT = 7879
 
 fun main() = runPollEventLoop(LinuxUring()) {
     signal(SIGPIPE, SIG_IGN)
