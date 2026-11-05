@@ -29,3 +29,5 @@ dependencyResolutionManagement {
 }
 
 include(":app")
+
+include(":db:schema", ":db:migration")

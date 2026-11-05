@@ -22,3 +22,5 @@ interface Repository {
     //
     suspend fun recordMessage(userId: Long, msg: String)
 }
+
+fun Repository(pgPool: kio.postgres.conn.PgConnectionPool): Repository = RepositoryImpl(pgPool)

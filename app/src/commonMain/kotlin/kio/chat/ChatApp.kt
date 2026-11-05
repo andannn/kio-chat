@@ -16,13 +16,13 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.withContext
 import kotlin.uuid.Uuid
 
-private val DATA_SOURCE = DataSourceType.MOCK
+private val DATA_SOURCE: DataSourceType
+    get() = DataSourceType.valueOf((getEnv("DATA_SOURCE") ?: "MOCK").uppercase())
 
 suspend fun CoroutineScope.chatApp(serverSocket: ServerSocket) {
     val env = loadEnv()
 
-    val repo: Repository = MockRepositoryImpl()
-    setupServer(dataSource = DATA_SOURCE, serverSocket, env) {
+    setupServer(dataSource = DATA_SOURCE, serverSocket, env) { repo ->
         context(repo) {
             inject(
                 CallId { Uuid.random().toString() },
@@ -56,36 +56,41 @@ private enum class DataSourceType {
 private suspend fun CoroutineScope.setupServer(
     dataSource: DataSourceType,
     serverSocket: ServerSocket, env: Env,
-    block: suspend Route.() -> Unit
+    block: suspend Route.(Repository) -> Unit
 ) {
     when (dataSource) {
         DataSourceType.MOCK -> {
             httpServer(
                 serverSocket = serverSocket,
             ) {
-                block()
+                block(MockRepositoryImpl())
             }
         }
 
         DataSourceType.LOCAL_DB -> {
-            httpServer(serverSocket = serverSocket) {
-                block()
+            val pool = createPgPool(env)
+            try {
+                httpServer(serverSocket = serverSocket) { block(Repository(pool)) }
+            } finally {
+                withContext(kotlinx.coroutines.NonCancellable) { pool.close() }
             }
         }
 
         DataSourceType.PRODUCTION -> {
-            httpServer(
-                serverSocket = serverSocket,
-                loggingBackEnd = AsyncLoggingBackEnd(this, enableTrace = true),
-                connectionWrapper = {
-                    withServerTls(
-                        env.tlsCert.pem,
-                        env.tlsKey.pem,
-                        supportAlpnProtocols = listOf("h2", "http/1.1")
-                    )
-                },
-            ) {
-                block()
+            val pool = createPgPool(env)
+            try {
+                httpServer(
+                    serverSocket = serverSocket,
+                    connectionWrapper = {
+                        withServerTls(
+                            env.tlsCert.pem,
+                            env.tlsKey.pem,
+                            supportAlpnProtocols = listOf("h2", "http/1.1")
+                        )
+                    },
+                ) { block(Repository(pool)) }
+            } finally {
+                withContext(kotlinx.coroutines.NonCancellable) { pool.close() }
             }
         }
     }
@@ -96,7 +101,7 @@ private fun loadEnv() = Env(
     postgresPort = getEnv("POSTGRES_PORT")?.toIntOrNull() ?: 5432,
     postgresUser = getEnv("POSTGRES_USER") ?: "postgres",
     postgresPassword = getEnv("POSTGRES_PASSWORD") ?: "",
-    postgresDatabase = getEnv("POSTGRES_DB") ?: "knote",
+    postgresDatabase = getEnv("POSTGRES_DB") ?: "kio_chat",
     tlsCert = getEnv("TLS_CERT") ?: "",
     tlsKey = getEnv("TLS_KEY") ?: "",
 )
