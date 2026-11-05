@@ -37,12 +37,13 @@ kotlin {
             implementation(libs.kio.io)
         }
         commonTest.dependencies {
+            implementation(project(":db:schema"))
             implementation(libs.kotlin.test)
         }
     }
 }
 
-tasks.register<Sync>("prepareKnoteDist") {
+tasks.register<Sync>("prepareKchatDist") {
     dependsOn("linkReleaseExecutableLinuxX64")
 
     val executableDir =
@@ -58,12 +59,12 @@ tasks.register<Sync>("prepareKnoteDist") {
 
     from(layout.buildDirectory.dir("bin/linuxX64/releaseExecutable")) {
         include("app.kexe")
-        rename("app.kexe", "knote")
+        rename("app.kexe", "kchat")
     }
 
     from(layout.projectDirectory.dir("resource")) {
         into("resource")
     }
 
-    into(layout.buildDirectory.dir("dist/knote"))
+    into(layout.buildDirectory.dir("dist/kchat"))
 }

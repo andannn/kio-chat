@@ -24,3 +24,10 @@ create table sessions (
         """.trimIndent()
     )
 )
+
+// Test cleanup, matching kio-note. Use only with a dedicated test database.
+suspend fun kio.postgres.conn.PgConnection.dropAllTables() {
+    exec("drop table if exists schema_migrations cascade")
+    exec("drop table if exists sessions cascade")
+    exec("drop table if exists users cascade")
+}
