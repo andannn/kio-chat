@@ -22,19 +22,21 @@ suspend fun CallContext.chatMainPage() {
     val session = requireSession()
     respondHtml {
         chatHead("Chat")
-        body {
-            main {
+        body(classes = "app chat-body") {
+            main(classes = "chat-layout") {
                 attributes["hx-ext"] = "ws"
                 attributes["ws-connect"] = "/messages/events"
-                h1 { +"Kio Chat" }
-                p { +"Signed in as user ${session.userId}" }
-                section {
+                header(classes = "chat-header") {
+                    h1 { +"Kio Chat" }
+                    p(classes = "chat-user") { +"User ${session.userId}" }
+                }
+                section(classes = "chat-messages") {
                     id = "messages"
                     hxGet = "/messages"
                     hxTrigger = "load"
                     hxSwap = "innerHTML"
                 }
-                form {
+                form(classes = "chat-composer") {
                     id = "message-form"
                     hxPost = "/messages"
                     hxSwap = "none"
@@ -44,6 +46,8 @@ suspend fun CallContext.chatMainPage() {
                         name = "content"
                         required = true
                         rows = "3"
+                        placeholder = "Write a message…"
+                        attributes["aria-label"] = "Message"
                     }
                     button(type = ButtonType.submit) {
                         id = "send-button"
