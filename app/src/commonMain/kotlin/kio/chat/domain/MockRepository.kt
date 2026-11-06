@@ -1,8 +1,11 @@
 package kio.chat.domain
 
 import kio.chat.util.hashPassword
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.launch
 import kotlin.uuid.Uuid
 
 class MockRepositoryImpl : Repository {
@@ -12,6 +15,8 @@ class MockRepositoryImpl : Repository {
 
     private val messages = mutableListOf<Message>()
     private val messageFlow = MutableSharedFlow<Message>()
+
+    override fun CoroutineScope.startWatchingMessageEvent(): Job = launch {}
 
     override suspend fun findUserByUsername(userName: String): User? {
         return users[userName]

@@ -8,8 +8,13 @@ import kio.chat.database.getUserIdBySessionId
 import kio.chat.util.hashPassword
 import kio.postgres.conn.PgConnectionPool
 import kio.postgres.conn.useConnection
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlin.uuid.Uuid
 
 data class User(val id: Long, val username: String, val passwordHash: String)
@@ -18,6 +23,7 @@ data class Session(val userId: Long)
 data class Message(val userId: Long, val text: String)
 
 interface Repository {
+    fun CoroutineScope.startWatchingMessageEvent(): Job
     suspend fun findUserByUsername(userName: String): User?
     suspend fun verifyPassword(user: User, password: String): Boolean
     suspend fun createUser(userName: String, password: String): User?
@@ -37,6 +43,17 @@ fun Repository(pgPool: PgConnectionPool): Repository = RepositoryImpl(pgPool)
 internal class RepositoryImpl(
     private val pgPool: PgConnectionPool,
 ) : Repository {
+
+    override fun CoroutineScope.startWatchingMessageEvent() = launch {
+        pgPool.useConnection { c ->
+            c.exec("LISTEN chat_messages")
+            while (currentCoroutineContext().isActive) {
+                val notification = c.waitNotification()
+                println("notification $notification")
+            }
+        }
+    }
+
     override suspend fun findUserByUsername(userName: String): User? =
         pgPool.useConnection { it.getUserByUsername(userName) }?.toUser()
 

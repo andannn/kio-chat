@@ -16,7 +16,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.withContext
 import kotlin.uuid.Uuid
 
-private val DATA_SOURCE = DataSourceType.PRODUCTION
+private val DATA_SOURCE = DataSourceType.LOCAL_DB
 
 suspend fun CoroutineScope.chatApp(serverSocket: ServerSocket) {
     val env = loadEnv()
@@ -69,7 +69,10 @@ private suspend fun CoroutineScope.setupServer(
         DataSourceType.LOCAL_DB -> {
             val pool = createPgPool(env)
             try {
-                httpServer(serverSocket = serverSocket) { block(Repository(pool)) }
+                val repo = Repository(pool)
+                val watchJob = with (repo) { startWatchingMessageEvent() }
+                httpServer(serverSocket = serverSocket) { block(repo) }
+                watchJob.join()
             } finally {
                 withContext(kotlinx.coroutines.NonCancellable) { pool.close() }
             }
@@ -78,6 +81,8 @@ private suspend fun CoroutineScope.setupServer(
         DataSourceType.PRODUCTION -> {
             val pool = createPgPool(env)
             try {
+                val repo = Repository(pool)
+                val watchJob = with (repo) { startWatchingMessageEvent() }
                 httpServer(
                     serverSocket = serverSocket,
                     connectionWrapper = {
@@ -87,7 +92,8 @@ private suspend fun CoroutineScope.setupServer(
                             supportAlpnProtocols = listOf("h2", "http/1.1")
                         )
                     },
-                ) { block(Repository(pool)) }
+                ) { block(repo) }
+                watchJob.join()
             } finally {
                 withContext(kotlinx.coroutines.NonCancellable) { pool.close() }
             }

@@ -2,11 +2,23 @@ package kio.chat.db
 
 import kio.postgres.migration.Migration
 
-val migrations get() = listOf(
-    Migration(
-        version = 1,
-        name = "create_auth_tables",
-        sql = """
+val migrations
+    get() = listOf(
+        migration1,
+        migration2,
+    )
+
+// Test cleanup, matching kio-note. Use only with a dedicated test database.
+suspend fun kio.postgres.conn.PgConnection.dropAllTables() {
+    exec("drop table if exists schema_migrations cascade")
+    exec("drop table if exists sessions cascade")
+    exec("drop table if exists users cascade")
+}
+
+private val migration1 = Migration(
+    version = 1,
+    name = "create_auth_tables",
+    sql = """
 create table users (
     id bigserial primary key,
     username text not null unique,
@@ -22,12 +34,12 @@ create table sessions (
     create_at timestamptz not null default now()
 );
         """.trimIndent()
-    )
 )
 
-// Test cleanup, matching kio-note. Use only with a dedicated test database.
-suspend fun kio.postgres.conn.PgConnection.dropAllTables() {
-    exec("drop table if exists schema_migrations cascade")
-    exec("drop table if exists sessions cascade")
-    exec("drop table if exists users cascade")
-}
+private val migration2 = Migration(
+    version = 1,
+    name = "add message table",
+    sql = """
+TODO:://
+        """.trimIndent()
+)
