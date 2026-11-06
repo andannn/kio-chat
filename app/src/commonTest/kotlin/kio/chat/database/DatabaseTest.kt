@@ -7,9 +7,18 @@ import kio.chat.db.dropAllTables
 import kio.chat.db.migrations
 import kio.postgres.conn.PgConnection
 import kio.postgres.conn.openPgConnection
+import kio.postgres.conn.query
+import kio.postgres.conn.transaction
+import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.Json
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 import kio.postgres.migration.MigrationResult
 import kio.postgres.migration.migrate
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -39,6 +48,75 @@ abstract class DatabaseTest {
         val user = createUser(userName = "1", passwordHash = "pas")!!
         createSession(user.id, "12345")
         assertEquals(user.id, getUserIdBySessionId("12345"))
+    }
+
+    @Test
+    fun createAndQueryMessagesTest() = withTestPgDatabase {
+        assertEquals(emptyList(), getMessageList())
+        assertNull(getMessageById(-1))
+        val user = createUser("sender", "hash")!!
+        val first = createMessage(user.id, "你好 'quoted' <text>")
+        val second = createMessage(user.id, "second")
+        assertEquals(user.id, first.userId)
+        assertEquals("你好 'quoted' <text>", first.text)
+        assertEquals(first, getMessageById(first.id))
+        assertEquals(listOf(first, second), getMessageList())
+    }
+
+    @Test
+    fun createMessageNotifiesIdTest() = withTestPgDatabase {
+        val user = createUser("sender", "hash")!!
+        exec("LISTEN chat_messages")
+        coroutineScope {
+            val notification = async(start = CoroutineStart.UNDISPATCHED) { waitNotification() }
+            val message = createMessage(user.id, "hello")
+            val event = notification.await()
+            assertEquals("chat_messages", event.channel)
+            val payload = Json.decodeFromString<ChatMessageNotification>(event.message)
+            assertEquals(1, payload.version)
+            assertEquals("INSERT", payload.operation)
+            assertEquals("public", payload.schema)
+            assertEquals("messages", payload.table)
+            assertEquals(message.id, payload.messageId)
+            assertEquals(user.id, payload.userId)
+            assertTrue(payload.createAt.isNotBlank())
+        }
+    }
+
+    @Test
+    fun directSqlChangesNotifyTest() = withTestPgDatabase {
+        val user = createUser("sender", "hash")!!
+        exec("LISTEN chat_messages")
+        val message = query<ChatMessageEntity>(
+            "insert into messages(user_id, text) values (${user.id}, 'direct SQL') returning id, user_id, text, create_at"
+        ).first()
+        val inserted = Json.decodeFromString<ChatMessageNotification>(waitNotification().message)
+        assertEquals("INSERT", inserted.operation)
+        assertEquals(message.id, inserted.messageId)
+        exec("update messages set text = 'edited' where id = ${message.id}")
+        assertEquals("UPDATE", Json.decodeFromString<ChatMessageNotification>(waitNotification().message).operation)
+        exec("delete from messages where id = ${message.id}")
+        val deleted = Json.decodeFromString<ChatMessageNotification>(waitNotification().message)
+        assertEquals("DELETE", deleted.operation)
+        assertEquals(message.id, deleted.messageId)
+        assertEquals(user.id, deleted.userId)
+        assertNull(getMessageById(message.id))
+    }
+
+    @Test
+    fun rolledBackMessageDoesNotNotifyTest() = withTestPgDatabase {
+        val user = createUser("sender", "hash")!!
+        exec("LISTEN chat_messages")
+        assertFailsWith<IllegalStateException> {
+            transaction { tx ->
+                tx.exec("insert into messages(user_id, text) values (${user.id}, 'rolled back')")
+                error("rollback")
+            }
+        }
+        assertEquals(emptyList(), getMessageList())
+        val committed = createMessage(user.id, "committed")
+        val payload = Json.decodeFromString<ChatMessageNotification>(waitNotification().message)
+        assertEquals(committed.id, payload.messageId)
     }
 
     fun withTestPgDatabase(

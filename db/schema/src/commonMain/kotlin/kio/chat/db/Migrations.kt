@@ -6,11 +6,14 @@ val migrations
     get() = listOf(
         migration1,
         migration2,
+        migration3,
     )
 
 // Test cleanup, matching kio-note. Use only with a dedicated test database.
 suspend fun kio.postgres.conn.PgConnection.dropAllTables() {
     exec("drop table if exists schema_migrations cascade")
+    exec("drop table if exists messages cascade")
+    exec("drop function if exists notify_chat_message()")
     exec("drop table if exists sessions cascade")
     exec("drop table if exists users cascade")
 }
@@ -37,9 +40,50 @@ create table sessions (
 )
 
 private val migration2 = Migration(
-    version = 1,
+    version = 2,
     name = "add message table",
     sql = """
-TODO:://
+create table messages (
+    id bigserial primary key,
+    user_id bigint not null
+        references users(id)
+        on delete cascade,
+    text text not null,
+    create_at timestamptz not null default now()
+);
+        """.trimIndent()
+)
+
+private val migration3 = Migration(
+    version = 3,
+    name = "notify message changes",
+    sql = """
+create function notify_chat_message() returns trigger
+language plpgsql as $$
+declare
+    message_row messages%rowtype;
+begin
+    if TG_OP = 'DELETE' then
+        message_row := OLD;
+    else
+        message_row := NEW;
+    end if;
+
+    perform pg_notify('chat_messages', json_build_object(
+        'version', 1,
+        'operation', TG_OP,
+        'schema', TG_TABLE_SCHEMA,
+        'table', TG_TABLE_NAME,
+        'message_id', message_row.id,
+        'user_id', message_row.user_id,
+        'create_at', message_row.create_at
+    )::text);
+    return null;
+end;
+$$;
+
+create trigger messages_notify
+    after insert or update or delete on messages
+    for each row execute function notify_chat_message();
         """.trimIndent()
 )

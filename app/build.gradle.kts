@@ -29,6 +29,7 @@ kotlin {
             implementation(libs.kio.poller.uring)
         }
         commonMain.dependencies {
+            implementation(libs.kotlinx.serialization.json)
             implementation(libs.kio.http)
             implementation(libs.kio.compression)
             implementation(libs.hash.sha2)

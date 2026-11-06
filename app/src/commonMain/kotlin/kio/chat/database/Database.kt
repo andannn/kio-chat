@@ -7,6 +7,8 @@ import kio.postgres.types.PgInt8
 import kio.postgres.types.PostgresInt8Serializer
 import kio.postgres.types.PostgresTextSerializer
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -78,3 +80,28 @@ suspend fun PgConnection.getUserByUsername(userName: String): ChatUserEntity? {
     return ret.firstOrNull()
 }
 
+
+// The database trigger publishes the notification when the transaction commits.
+suspend fun PgConnection.createMessage(userId: Long, text: String): ChatMessageEntity =
+    query<ChatMessageEntity>(
+        """
+        insert into messages(user_id, text)
+        values ($1, $2)
+        returning id, user_id, text, create_at
+        """.trimIndent()
+    ) {
+        param(userId, PostgresInt8Serializer)
+        param(text, PostgresTextSerializer)
+    }.first()
+
+suspend fun PgConnection.getMessageList(): List<ChatMessageEntity> =
+    query<ChatMessageEntity>(
+        "select id, user_id, text, create_at from messages order by id"
+    ).toList()
+
+suspend fun PgConnection.getMessageById(messageId: Long): ChatMessageEntity? =
+    query<ChatMessageEntity>(
+        "select id, user_id, text, create_at from messages where id = $1"
+    ) {
+        param(messageId, PostgresInt8Serializer)
+    }.firstOrNull()
