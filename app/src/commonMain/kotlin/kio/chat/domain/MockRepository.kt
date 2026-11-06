@@ -3,8 +3,9 @@ package kio.chat.domain
 import kio.chat.util.hashPassword
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlin.uuid.Uuid
 
@@ -14,7 +15,8 @@ class MockRepositoryImpl : Repository {
     private var nextUserId = 1L
 
     private val messages = mutableListOf<Message>()
-    private val messageFlow = MutableSharedFlow<Message>()
+    private val messageFlow = MutableSharedFlow<MessageEvent>()
+    private var nextMessageId = 1L
 
     override fun CoroutineScope.startWatchingMessageEvent(): Job = launch {}
 
@@ -44,13 +46,13 @@ class MockRepositoryImpl : Repository {
     }
 
 
-    override fun observeNewMessageFlow(): SharedFlow<Message> {
-        return messageFlow
+    override fun observeMessageEvent(): Flow<MessageEvent> {
+        return messageFlow.asSharedFlow()
     }
 
     override suspend fun recordMessage(userId: Long, msg: String) {
-        val message = Message(userId, msg)
+        val message = Message(nextMessageId++, userId, msg)
         messages.add(message)
-        messageFlow.emit(message)
+        messageFlow.emit(MessageEvent.Added(message))
     }
 }

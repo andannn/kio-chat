@@ -1,6 +1,11 @@
 package kio.chat.domain
 
 import kio.chat.database.ChatUserEntity
+import kio.chat.database.ChatMessageEntity
+import kio.chat.database.ChatMessageNotification
+import kio.chat.database.createMessage
+import kio.chat.database.getMessageList
+import kio.chat.database.getMessageById
 import kio.chat.database.createSession
 import kio.chat.database.createUser
 import kio.chat.database.getUserByUsername
@@ -12,7 +17,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.uuid.Uuid
@@ -20,7 +27,13 @@ import kotlin.uuid.Uuid
 data class User(val id: Long, val username: String, val passwordHash: String)
 data class Session(val userId: Long)
 
-data class Message(val userId: Long, val text: String)
+data class Message(val id: Long, val userId: Long, val text: String)
+
+sealed interface MessageEvent {
+    data class Added(val message: Message) : MessageEvent
+    data class Changed(val message: Message) : MessageEvent
+    data class Deleted(val messageId: Long) : MessageEvent
+}
 
 interface Repository {
     fun CoroutineScope.startWatchingMessageEvent(): Job
@@ -32,7 +45,7 @@ interface Repository {
 
     suspend fun getMessageList(): List<Message>
 
-    fun observeNewMessageFlow() : SharedFlow<Message>
+    fun observeMessageEvent(): Flow<MessageEvent>
 
     //
     suspend fun recordMessage(userId: Long, msg: String)
@@ -44,12 +57,35 @@ internal class RepositoryImpl(
     private val pgPool: PgConnectionPool,
 ) : Repository {
 
+    private val messageEventFlow = MutableSharedFlow<MessageEvent>(extraBufferCapacity = 64)
+    private val notificationJson = Json { ignoreUnknownKeys = true }
+
     override fun CoroutineScope.startWatchingMessageEvent() = launch {
         pgPool.useConnection { c ->
             c.exec("LISTEN chat_messages")
             while (currentCoroutineContext().isActive) {
                 val notification = c.waitNotification()
-                println("notification $notification")
+                if (notification.channel != "chat_messages") continue
+                val event = notificationJson.decodeFromString<ChatMessageNotification>(notification.message)
+                println("event ${event}")
+                val messageEvent = when (event.operation) {
+                    "DELETE" -> {
+                        MessageEvent.Deleted(event.messageId)
+                    }
+
+                    "INSERT" -> {
+                        val message = pgPool.useConnection { it.getMessageById(event.messageId) } ?: continue
+                        MessageEvent.Added(message.toMessage())
+                    }
+
+                    "UPDATE" -> {
+                        val message = pgPool.useConnection { it.getMessageById(event.messageId) } ?: continue
+                        MessageEvent.Changed(message.toMessage())
+                    }
+
+                    else -> continue
+                }
+                messageEventFlow.emit(messageEvent)
             }
         }
     }
@@ -73,17 +109,17 @@ internal class RepositoryImpl(
         pgPool.useConnection { it.getUserIdBySessionId(sessionId) }?.let { Session(it) }
 
     override suspend fun getMessageList(): List<Message> {
-        TODO("Not yet implemented")
+        return pgPool.useConnection { it.getMessageList() }.map { it.toMessage() }
     }
 
-    override fun observeNewMessageFlow(): SharedFlow<Message> {
-        TODO("Not yet implemented")
+    override fun observeMessageEvent(): Flow<MessageEvent> {
+        return messageEventFlow.asSharedFlow()
     }
 
     override suspend fun recordMessage(userId: Long, msg: String) {
-        TODO("Not yet implemented")
+        pgPool.useConnection { it.createMessage(userId, msg) }
     }
 }
 
 private fun ChatUserEntity.toUser() = User(id, username, passwordHash)
-
+private fun ChatMessageEntity.toMessage() = Message(id, userId, text)

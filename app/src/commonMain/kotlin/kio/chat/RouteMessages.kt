@@ -4,6 +4,9 @@ import io.ktor.http.HttpStatusCode
 import kio.chat.components.messageAppend
 import kio.chat.components.messageList
 import kio.chat.domain.Repository
+import kio.chat.domain.MessageEvent
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.map
 import kio.http.*
 import kotlinx.html.stream.createHTML
 
@@ -15,7 +18,9 @@ fun Route.messagesRoute() {
 
         websocket("/events") { socket ->
             val userId = requireSession().userId
-            repo.observeNewMessageFlow()
+            repo.observeMessageEvent()
+                .filterIsInstance<MessageEvent.Added>()
+                .map { it.message }
                 .collect { message ->
                     socket.sendText(createHTML().apply { messageAppend(message, userId == message.userId) }.finalize())
                 }

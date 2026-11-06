@@ -41,14 +41,8 @@ data class ChatMessageEntity(
     val createAt: PgTimestampTz,
 )
 
-// JSON payload on the chat_messages notification channel, not a PostgreSQL row.
 @Serializable
 data class ChatMessageNotification(
-    val version: Int,
     val operation: String,
-    val schema: String,
-    val table: String,
     @SerialName("message_id") val messageId: Long,
-    @SerialName("user_id") val userId: Long,
-    @SerialName("create_at") val createAt: String,
 )

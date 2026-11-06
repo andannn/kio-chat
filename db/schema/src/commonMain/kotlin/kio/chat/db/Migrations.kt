@@ -70,13 +70,8 @@ begin
     end if;
 
     perform pg_notify('chat_messages', json_build_object(
-        'version', 1,
         'operation', TG_OP,
-        'schema', TG_TABLE_SCHEMA,
-        'table', TG_TABLE_NAME,
-        'message_id', message_row.id,
-        'user_id', message_row.user_id,
-        'create_at', message_row.create_at
+        'message_id', message_row.id
     )::text);
     return null;
 end;
