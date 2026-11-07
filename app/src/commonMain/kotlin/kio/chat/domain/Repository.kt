@@ -3,6 +3,8 @@ package kio.chat.domain
 import kio.chat.database.ChatUserEntity
 import kio.chat.database.ChatMessageWithUserEntity
 import kio.chat.database.ChatMessageNotification
+import kio.chat.database.updateMessage
+import kio.chat.database.deleteMessage
 import kio.chat.database.createMessage
 import kio.chat.database.getMessageList
 import kio.chat.database.getMessageById
@@ -46,6 +48,9 @@ interface Repository {
     suspend fun getSessionById(sessionId: String): Session?
     fun observeMessageEvent(): Flow<MessageEvent>
     suspend fun recordMessage(userId: Long, msg: String)
+    suspend fun getOwnMessage(userId: Long, messageId: Long): Message?
+    suspend fun updateMessage(userId: Long, messageId: Long, text: String): Boolean
+    suspend fun deleteMessage(userId: Long, messageId: Long): Boolean
 }
 
 fun Repository(pgPool: PgConnectionPool): Repository = RepositoryImpl(pgPool)
@@ -134,6 +139,16 @@ internal class RepositoryImpl(
     override suspend fun recordMessage(userId: Long, msg: String) {
         pgPool.useConnection { it.createMessage(userId, msg) }
     }
+
+    override suspend fun getOwnMessage(userId: Long, messageId: Long): Message? =
+        pgPool.useConnection { it.getMessageById(messageId) }?.takeIf { it.userId == userId }?.toMessage()
+
+    override suspend fun updateMessage(userId: Long, messageId: Long, text: String): Boolean =
+        pgPool.useConnection { it.updateMessage(userId, messageId, text) }
+
+    override suspend fun deleteMessage(userId: Long, messageId: Long): Boolean =
+        pgPool.useConnection { it.deleteMessage(userId, messageId) }
+
 }
 
 private fun ChatUserEntity.toUser() = User(id, username, passwordHash)

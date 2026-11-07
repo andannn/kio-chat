@@ -51,4 +51,23 @@ class MockRepositoryImpl : Repository {
         messages.add(message)
         messageFlow.emit(MessageEvent.Added(message))
     }
+    override suspend fun getOwnMessage(userId: Long, messageId: Long): Message? =
+        messages.find { it.id == messageId && it.user.id == userId }
+
+    override suspend fun updateMessage(userId: Long, messageId: Long, text: String): Boolean {
+        val index = messages.indexOfFirst { it.id == messageId && it.user.id == userId }
+        if (index < 0) return false
+        val message = messages[index].copy(text = text)
+        messages[index] = message
+        messageFlow.emit(MessageEvent.Changed(message))
+        return true
+    }
+
+    override suspend fun deleteMessage(userId: Long, messageId: Long): Boolean {
+        val message = getOwnMessage(userId, messageId) ?: return false
+        messages.remove(message)
+        messageFlow.emit(MessageEvent.Deleted(messageId))
+        return true
+    }
+
 }

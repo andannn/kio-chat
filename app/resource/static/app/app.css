@@ -318,3 +318,124 @@ body {
     .chat-composer { padding: 16px 20px max(16px, env(safe-area-inset-bottom)); gap: 10px; }
     .chat-composer button { padding-inline: 16px; }
 }
+
+/* Message options follow knote menus. */
+.menu-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    width: 28px;
+    height: 28px;
+    padding: 0;
+
+    border-radius: 6px;
+
+    color: var(--text-muted);
+
+    font-size: 20px;
+    line-height: 1;
+
+    cursor: pointer;
+    user-select: none;
+
+    transition:
+        background-color 120ms ease,
+        color 120ms ease;
+}
+
+.menu-trigger:hover {
+    background: rgba(255, 255, 255, 0.07);
+    color: var(--text-secondary);
+}
+
+.menu-trigger::marker {
+    content: "";
+}
+
+.menu-trigger::-webkit-details-marker {
+    display: none;
+}
+
+.menu-trigger:focus-visible {
+    outline: 2px solid var(--text-secondary);
+    outline-offset: 2px;
+}
+
+.menu-popup {
+    position: absolute;
+    top: 32px;
+    left: 0;
+
+    z-index: 20;
+
+    min-width: 150px;
+    padding: 6px;
+
+    border: 1px solid var(--border-strong);
+    border-radius: 8px;
+
+    background: var(--bg-surface);
+
+    box-shadow:
+        0 8px 24px rgba(0, 0, 0, 0.34),
+        0 2px 8px rgba(0, 0, 0, 0.26);
+}
+
+.menu-item {
+    display: flex;
+    align-items: center;
+
+    width: 100%;
+    padding: 8px 10px;
+
+    border: 0;
+    border-radius: 6px;
+
+    background: transparent;
+    color: var(--text-primary);
+
+    font: inherit;
+    font-size: 15px;
+
+    text-align: left;
+    cursor: pointer;
+
+    text-decoration: none;
+}
+
+.menu-item:hover {
+    background: var(--bg-surface-hover);
+}
+
+
+.chat-messages article { position: relative; }
+.chat-messages article[data-mine="true"] { padding-right: 44px; }
+.message-menu { position: absolute; top: 7px; right: 7px; }
+.message-menu[open] { z-index: 30; }
+.message-menu > .menu-popup { left: auto; right: 0; }
+.chat-messages .message-editing { width: 480px; padding: 12px 16px; }
+.message-edit-form textarea {
+    display: block;
+    width: 100%;
+    padding: 10px 12px;
+    resize: vertical;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    font: inherit;
+}
+.message-edit-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.message-edit-actions button {
+    padding: 7px 14px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font: inherit;
+    cursor: pointer;
+}
+.message-edit-actions button[type="submit"] { background: var(--text-primary); color: #202020; }
+.message-edit-actions button:disabled { opacity: .5; }
+.message-edit-form :is(textarea, button):focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }

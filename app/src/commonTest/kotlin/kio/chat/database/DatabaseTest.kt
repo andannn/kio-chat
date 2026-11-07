@@ -18,6 +18,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlin.test.assertFalse
 import kotlin.time.Duration.Companion.seconds
 
 abstract class DatabaseTest {
@@ -97,6 +99,25 @@ abstract class DatabaseTest {
         assertEquals("DELETE", deleted.operation)
         assertEquals(message.id, deleted.messageId)
         assertNull(getMessageById(message.id))
+    }
+
+    @Test
+    fun onlyOwnerCanUpdateOrDeleteMessageTest() = withTestPgDatabase {
+        val owner = createUser("owner", "hash")!!
+        val other = createUser("other", "hash")!!
+        createMessage(owner.id, "original")
+        createMessage(other.id, "keep")
+        val message = getMessageList().first()
+        assertFalse(updateMessage(other.id, message.id, "forged"))
+        assertFalse(deleteMessage(other.id, message.id))
+        assertEquals("original", getMessageById(message.id)?.text)
+        assertTrue(updateMessage(owner.id, message.id, "edited"))
+        assertEquals("edited", getMessageById(message.id)?.text)
+        assertTrue(deleteMessage(owner.id, message.id))
+        assertNull(getMessageById(message.id))
+        assertFalse(updateMessage(owner.id, message.id, "missing"))
+        assertFalse(deleteMessage(owner.id, message.id))
+        assertEquals(listOf("keep"), getMessageList().map { it.text })
     }
 
     fun withTestPgDatabase(

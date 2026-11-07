@@ -132,3 +132,16 @@ suspend fun PgConnection.getMessageById(messageId: Long): ChatMessageWithUserEnt
     ) {
         param(messageId, PostgresInt8Serializer)
     }.firstOrNull()
+
+suspend fun PgConnection.updateMessage(userId: Long, messageId: Long, text: String): Boolean =
+    exec("update messages set text = $1 where id = $2 and user_id = $3") {
+        param(text, PostgresTextSerializer)
+        param(messageId, PostgresInt8Serializer)
+        param(userId, PostgresInt8Serializer)
+    } == "UPDATE 1"
+
+suspend fun PgConnection.deleteMessage(userId: Long, messageId: Long): Boolean =
+    exec("delete from messages where id = $1 and user_id = $2") {
+        param(messageId, PostgresInt8Serializer)
+        param(userId, PostgresInt8Serializer)
+    } == "DELETE 1"
