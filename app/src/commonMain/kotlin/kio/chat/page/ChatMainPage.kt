@@ -26,6 +26,7 @@ suspend fun CallContext.chatMainPage() {
             main(classes = "chat-layout") {
                 attributes["hx-ext"] = "ws"
                 attributes["ws-connect"] = "/messages/events"
+                attributes["hx-on:htmx:ws-after-message"] = "scrollMessageList(this)"
                 header(classes = "chat-header") {
                     h1 { +"Kio Chat" }
                     p(classes = "chat-user") { +"User ${session.userId}" }
@@ -37,6 +38,7 @@ suspend fun CallContext.chatMainPage() {
                     id = "message-form"
                     hxPost = "/messages"
                     hxSwap = "none"
+                    hxOnAfterRequest = "if (event.detail.successful) this.reset()"
 
                     textArea {
                         id = "content"
@@ -45,6 +47,7 @@ suspend fun CallContext.chatMainPage() {
                         rows = "3"
                         placeholder = "Write a message…"
                         attributes["aria-label"] = "Message"
+                        attributes["hx-on:keydown"] = "handleMessageKeydown(event, this)"
                     }
                     button(type = ButtonType.submit) {
                         id = "send-button"
