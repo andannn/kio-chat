@@ -41,11 +41,6 @@ class MockRepositoryImpl : Repository {
         return  sessions[sessionId]
     }
 
-    override suspend fun getMessageList(): List<Message>  {
-        return messages.toList()
-    }
-
-
     override fun observeMessageEvent(): Flow<MessageEvent> {
         return messageFlow.asSharedFlow()
     }

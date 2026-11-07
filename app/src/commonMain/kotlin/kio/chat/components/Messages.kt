@@ -5,8 +5,12 @@ import kio.chat.util.hxSwapOob
 import kotlinx.html.*
 
 fun TagConsumer<*>.messageList(messages: List<Message>, currentUserId: Long) {
-    messages.forEach { message ->
-        article { messageItem(message, message.userId == currentUserId) }
+    div {
+        id = "messages"
+        hxSwapOob = "innerHTML"
+        messages.forEach { message ->
+            article { messageItem(message, message.userId == currentUserId) }
+        }
     }
 }
 

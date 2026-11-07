@@ -18,7 +18,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onSubscription
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -30,6 +31,7 @@ data class Session(val userId: Long)
 data class Message(val id: Long, val userId: Long, val text: String)
 
 sealed interface MessageEvent {
+    data class Initial(val message: List<Message>): MessageEvent
     data class Added(val message: Message) : MessageEvent
     data class Changed(val message: Message) : MessageEvent
     data class Deleted(val messageId: Long) : MessageEvent
@@ -42,12 +44,7 @@ interface Repository {
     suspend fun createUser(userName: String, password: String): User?
     suspend fun createSession(userId: Long): String
     suspend fun getSessionById(sessionId: String): Session?
-
-    suspend fun getMessageList(): List<Message>
-
     fun observeMessageEvent(): Flow<MessageEvent>
-
-    //
     suspend fun recordMessage(userId: Long, msg: String)
 }
 
@@ -108,12 +105,30 @@ internal class RepositoryImpl(
     override suspend fun getSessionById(sessionId: String): Session? =
         pgPool.useConnection { it.getUserIdBySessionId(sessionId) }?.let { Session(it) }
 
-    override suspend fun getMessageList(): List<Message> {
-        return pgPool.useConnection { it.getMessageList() }.map { it.toMessage() }
-    }
+    override fun observeMessageEvent(): Flow<MessageEvent> = flow {
+        val ids = mutableSetOf<Long>()
 
-    override fun observeMessageEvent(): Flow<MessageEvent> {
-        return messageEventFlow.asSharedFlow()
+        messageEventFlow
+            .onSubscription {
+                val messages = pgPool.useConnection { it.getMessageList() }.map { it.toMessage() }
+                ids.addAll(messages.map { it.id })
+                this@flow.emit(MessageEvent.Initial(messages))
+            }
+            .collect { event ->
+                when (event) {
+                    is MessageEvent.Added ->
+                        if (ids.add(event.message.id)) emit(event)
+
+                    is MessageEvent.Changed -> emit(event)
+
+                    is MessageEvent.Deleted -> {
+                        ids.remove(event.messageId)
+                        emit(event)
+                    }
+
+                    is MessageEvent.Initial -> Unit
+                }
+            }
     }
 
     override suspend fun recordMessage(userId: Long, msg: String) {

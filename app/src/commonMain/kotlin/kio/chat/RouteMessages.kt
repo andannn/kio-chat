@@ -1,29 +1,34 @@
 package kio.chat
 
-import io.ktor.http.HttpStatusCode
+import io.ktor.http.*
 import kio.chat.components.messageAppend
 import kio.chat.components.messageList
-import kio.chat.domain.Repository
 import kio.chat.domain.MessageEvent
-import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.map
+import kio.chat.domain.Repository
 import kio.http.*
 import kotlinx.html.stream.createHTML
 
 context(repo: Repository)
 fun Route.messagesRoute() {
     route("messages") {
-        get { call -> call.handleGetMessageList() }
         post { call -> call.handleNewMessage() }
 
         websocket("/events") { socket ->
             val userId = requireSession().userId
-            repo.observeMessageEvent()
-                .filterIsInstance<MessageEvent.Added>()
-                .map { it.message }
-                .collect { message ->
-                    socket.sendText(createHTML().apply { messageAppend(message, userId == message.userId) }.finalize())
-                }
+            repo.observeMessageEvent().collect { event ->
+                socket.sendText(createHTML().apply {
+                    when (event) {
+                        is MessageEvent.Initial -> {
+                            messageList(event.message, userId)
+                        }
+                        is MessageEvent.Added -> {
+                            messageAppend(event.message, userId == event.message.userId)
+                        }
+                        is MessageEvent.Changed -> TODO()
+                        is MessageEvent.Deleted -> TODO()
+                    }
+                }.finalize())
+            }
         }
     }
 }
@@ -38,11 +43,4 @@ private suspend fun CallContext.handleNewMessage() {
     repo.recordMessage(requireSession().userId, content)
 
     respond(HttpStatusCode.NoContent)
-}
-
-context(repo: Repository)
-private suspend fun CallContext.handleGetMessageList() {
-    val userId = requireSession().userId
-    val messages = repo.getMessageList()
-    respondHtml { messageList(messages, userId) }
 }

@@ -32,9 +32,6 @@ suspend fun CallContext.chatMainPage() {
                 }
                 section(classes = "chat-messages") {
                     id = "messages"
-                    hxGet = "/messages"
-                    hxTrigger = "load"
-                    hxSwap = "innerHTML"
                 }
                 form(classes = "chat-composer") {
                     id = "message-form"
