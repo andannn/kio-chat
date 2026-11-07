@@ -4,10 +4,11 @@ import kio.postgres.conn.PgConnection
 import kio.postgres.conn.param
 import kio.postgres.conn.query
 import kio.postgres.types.PgInt8
+import kio.postgres.types.PgText
+import kio.postgres.types.PgTimestampTz
 import kio.postgres.types.PostgresInt8Serializer
 import kio.postgres.types.PostgresTextSerializer
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.serialization.SerialName
@@ -82,26 +83,52 @@ suspend fun PgConnection.getUserByUsername(userName: String): ChatUserEntity? {
 
 
 // The database trigger publishes the notification when the transaction commits.
-suspend fun PgConnection.createMessage(userId: Long, text: String): ChatMessageEntity =
-    query<ChatMessageEntity>(
+suspend fun PgConnection.createMessage(userId: Long, text: String) {
+    exec(
         """
         insert into messages(user_id, text)
         values ($1, $2)
-        returning id, user_id, text, create_at
         """.trimIndent()
     ) {
         param(userId, PostgresInt8Serializer)
         param(text, PostgresTextSerializer)
-    }.first()
+    }
+}
 
-suspend fun PgConnection.getMessageList(): List<ChatMessageEntity> =
-    query<ChatMessageEntity>(
-        "select id, user_id, text, create_at from messages order by id"
+@Serializable
+data class ChatMessageWithUserEntity(
+    @SerialName("id")
+    val id: PgInt8,
+    @SerialName("user_id")
+    val userId: PgInt8,
+    @SerialName("text")
+    val text: PgText,
+    @SerialName("create_at")
+    val createAt: PgTimestampTz,
+    @SerialName("username")
+    val username: PgText,
+    @SerialName("password_hash")
+    val passwordHash: PgText,
+)
+
+suspend fun PgConnection.getMessageList(): List<ChatMessageWithUserEntity> =
+    query<ChatMessageWithUserEntity>(
+        """
+        select m.id, m.user_id, m.text, m.create_at, u.username, u.password_hash
+        from messages m
+        join users u on u.id = m.user_id
+        order by m.id
+        """.trimIndent()
     ).toList()
 
-suspend fun PgConnection.getMessageById(messageId: Long): ChatMessageEntity? =
-    query<ChatMessageEntity>(
-        "select id, user_id, text, create_at from messages where id = $1"
+suspend fun PgConnection.getMessageById(messageId: Long): ChatMessageWithUserEntity? =
+    query<ChatMessageWithUserEntity>(
+        """
+        select m.id, m.user_id, m.text, m.create_at, u.username, u.password_hash
+        from messages m
+        join users u on u.id = m.user_id
+        where m.id = $1
+        """.trimIndent()
     ) {
         param(messageId, PostgresInt8Serializer)
     }.firstOrNull()

@@ -46,7 +46,8 @@ class MockRepositoryImpl : Repository {
     }
 
     override suspend fun recordMessage(userId: Long, msg: String) {
-        val message = Message(nextMessageId++, userId, msg)
+        val user = requireNotNull(users.values.find { it.id == userId }) { "Unknown user" }
+        val message = Message(nextMessageId++, user, msg, user.username)
         messages.add(message)
         messageFlow.emit(MessageEvent.Added(message))
     }

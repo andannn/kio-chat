@@ -2,7 +2,6 @@ package kio.chat.page
 
 import kio.http.CallContext
 import kio.http.respondHtml
-import kio.chat.requireSession
 import kio.chat.util.*
 import kotlinx.html.*
 
@@ -19,7 +18,6 @@ fun TagConsumer<*>.chatHead(title: String) {
 }
 
 suspend fun CallContext.chatMainPage() {
-    val session = requireSession()
     respondHtml {
         chatHead("Chat")
         body(classes = "app chat-body") {
@@ -29,7 +27,6 @@ suspend fun CallContext.chatMainPage() {
                 attributes["hx-on:htmx:ws-after-message"] = "scrollMessageList(this)"
                 header(classes = "chat-header") {
                     h1 { +"Kio Chat" }
-                    p(classes = "chat-user") { +"User ${session.userId}" }
                 }
                 section(classes = "chat-messages") {
                     id = "messages"

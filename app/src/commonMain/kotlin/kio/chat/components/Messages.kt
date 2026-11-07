@@ -9,7 +9,7 @@ fun TagConsumer<*>.messageList(messages: List<Message>, currentUserId: Long) {
         id = "messages"
         hxSwapOob = "innerHTML"
         messages.forEach { message ->
-            article { messageItem(message, message.userId == currentUserId) }
+            article { messageItem(message, message.user.id == currentUserId) }
         }
     }
 }
@@ -25,7 +25,7 @@ fun TagConsumer<*>.messageAppend(message: Message, isMine: Boolean) {
 private fun ARTICLE.messageItem(message: Message, isMine: Boolean) {
     attributes["data-mine"] = isMine.toString()
     p {
-        strong { +"User ${message.userId}: " }
+        strong { +"${message.username}: " }
         +message.text
     }
 }

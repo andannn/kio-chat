@@ -22,7 +22,7 @@ fun Route.messagesRoute() {
                             messageList(event.message, userId)
                         }
                         is MessageEvent.Added -> {
-                            messageAppend(event.message, userId == event.message.userId)
+                            messageAppend(event.message, userId == event.message.user.id)
                         }
                         is MessageEvent.Changed -> TODO()
                         is MessageEvent.Deleted -> TODO()

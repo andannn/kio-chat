@@ -1,7 +1,7 @@
 package kio.chat.domain
 
 import kio.chat.database.ChatUserEntity
-import kio.chat.database.ChatMessageEntity
+import kio.chat.database.ChatMessageWithUserEntity
 import kio.chat.database.ChatMessageNotification
 import kio.chat.database.createMessage
 import kio.chat.database.getMessageList
@@ -28,7 +28,7 @@ import kotlin.uuid.Uuid
 data class User(val id: Long, val username: String, val passwordHash: String)
 data class Session(val userId: Long)
 
-data class Message(val id: Long, val userId: Long, val text: String)
+data class Message(val id: Long, val user: User, val text: String, val username: String)
 
 sealed interface MessageEvent {
     data class Initial(val message: List<Message>): MessageEvent
@@ -137,4 +137,4 @@ internal class RepositoryImpl(
 }
 
 private fun ChatUserEntity.toUser() = User(id, username, passwordHash)
-private fun ChatMessageEntity.toMessage() = Message(id, userId, text)
+private fun ChatMessageWithUserEntity.toMessage() = Message(id, User(userId, username, passwordHash), text, username)

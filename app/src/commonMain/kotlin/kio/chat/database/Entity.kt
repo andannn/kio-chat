@@ -41,6 +41,7 @@ data class ChatMessageEntity(
     val createAt: PgTimestampTz,
 )
 
+
 @Serializable
 data class ChatMessageNotification(
     val operation: String,

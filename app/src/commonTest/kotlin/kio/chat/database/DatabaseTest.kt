@@ -7,13 +7,11 @@ import kio.chat.db.dropAllTables
 import kio.chat.db.migrations
 import kio.postgres.conn.PgConnection
 import kio.postgres.conn.openPgConnection
-import kio.postgres.conn.query
 import kio.postgres.migration.MigrationResult
 import kio.postgres.migration.migrate
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
@@ -52,9 +50,15 @@ abstract class DatabaseTest {
         assertEquals(emptyList(), getMessageList())
         assertNull(getMessageById(-1))
         val user = createUser("sender", "hash")!!
-        val first = createMessage(user.id, "你好 'quoted' <text>")
-        val second = createMessage(user.id, "second")
+        createMessage(user.id, "你好 'quoted' <text>")
+        createMessage(user.id, "second")
+        val messages = getMessageList()
+        assertEquals(2, messages.size)
+        val (first, second) = messages
         assertEquals(user.id, first.userId)
+        assertEquals("sender", first.username)
+        assertEquals(user.passwordHash, first.passwordHash)
+        assertEquals("sender", getMessageById(second.id)?.username)
         assertEquals("你好 'quoted' <text>", first.text)
         assertEquals(first, getMessageById(first.id))
         assertEquals(listOf(first, second), getMessageList())
@@ -66,12 +70,14 @@ abstract class DatabaseTest {
         exec("LISTEN chat_messages")
         coroutineScope {
             val notification = async(start = CoroutineStart.UNDISPATCHED) { waitNotification() }
-            val message = createMessage(user.id, "hello")
+            createMessage(user.id, "hello")
             val event = notification.await()
             assertEquals("chat_messages", event.channel)
             val payload = Json.decodeFromString<ChatMessageNotification>(event.message)
             assertEquals("INSERT", payload.operation)
-            assertEquals(message.id, payload.messageId)
+            val message = assertIs<ChatMessageWithUserEntity>(getMessageById(payload.messageId))
+            assertEquals(user.id, message.userId)
+            assertEquals("hello", message.text)
         }
     }
 
@@ -79,9 +85,8 @@ abstract class DatabaseTest {
     fun directSqlChangesNotifyTest() = withTestPgDatabase {
         val user = createUser("sender", "hash")!!
         exec("LISTEN chat_messages")
-        val message = query<ChatMessageEntity>(
-            "insert into messages(user_id, text) values (${user.id}, 'direct SQL') returning id, user_id, text, create_at"
-        ).first()
+        exec("insert into messages(user_id, text) values (${user.id}, 'direct SQL')")
+        val message = getMessageList().single()
         val inserted = Json.decodeFromString<ChatMessageNotification>(waitNotification().message)
         assertEquals("INSERT", inserted.operation)
         assertEquals(message.id, inserted.messageId)
