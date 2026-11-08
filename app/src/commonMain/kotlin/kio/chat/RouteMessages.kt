@@ -23,18 +23,22 @@ fun Route.messagesRoute() {
                         is MessageEvent.Added -> {
                             messageAppend(event.message, userId == event.message.user.id)
                         }
-                        is MessageEvent.Changed -> messageChanged(event.message, userId == event.message.user.id)
-                        is MessageEvent.Deleted -> messageDeleted(event.messageId)
+                        is MessageEvent.Changed -> {
+                            messageChanged(event.message, userId == event.message.user.id)
+                        }
+                        is MessageEvent.Deleted -> {
+                            messageDeleted(event.messageId)
+                        }
                     }
                 }.finalize())
             }
         }
 
         route("/{id}") {
-            get { call -> call.handleOwnMessage(editing = false) }
-            get("/editor") { call -> call.handleOwnMessage(editing = true) }
+            get { call -> call.handleGetMessage() }
             patch { call -> call.handleUpdateMessage() }
             delete { call -> call.handleDeleteMessage() }
+            get("/editor") { call -> call.handleGetEditingMessage() }
         }
     }
 }
@@ -58,7 +62,7 @@ private suspend fun CallContext.messageIdOrRespond(): Long? {
 }
 
 context(repo: Repository)
-private suspend fun CallContext.handleOwnMessage(editing: Boolean) {
+private suspend fun CallContext.handleGetMessage() {
     val id = messageIdOrRespond() ?: return
     val message = repo.getOwnMessage(requireSession().userId, id)
     if (message == null) {
@@ -66,7 +70,20 @@ private suspend fun CallContext.handleOwnMessage(editing: Boolean) {
         return
     }
     respondHtml {
-        if (editing) messageEditor(message) else messageView(message, isMine = true)
+        messageView(message, isMine = true)
+    }
+}
+
+context(repo: Repository)
+private suspend fun CallContext.handleGetEditingMessage() {
+    val id = messageIdOrRespond() ?: return
+    val message = repo.getOwnMessage(requireSession().userId, id)
+    if (message == null) {
+        respond(HttpStatusCode.NotFound)
+        return
+    }
+    respondHtml {
+        messageEditor(message)
     }
 }
 
