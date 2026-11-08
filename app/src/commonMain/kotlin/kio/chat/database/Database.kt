@@ -111,15 +111,21 @@ data class ChatMessageWithUserEntity(
     val passwordHash: PgText,
 )
 
-suspend fun PgConnection.getMessageList(): List<ChatMessageWithUserEntity> =
-    query<ChatMessageWithUserEntity>(
+suspend fun PgConnection.getMessageList(beforeId: Long?, limit: Int): List<ChatMessageWithUserEntity> {
+    require(limit > 0) { "limit must be positive" }
+    val whereClause = if (beforeId != null) "where m.id < $beforeId" else ""
+
+    return query<ChatMessageWithUserEntity>(
         """
         select m.id, m.user_id, m.text, m.create_at, u.username, u.password_hash
         from messages m
         join users u on u.id = m.user_id
-        order by m.id
+        $whereClause
+        order by m.id desc
+        limit $limit
         """.trimIndent()
     ).toList()
+}
 
 suspend fun PgConnection.getMessageById(messageId: Long): ChatMessageWithUserEntity? =
     query<ChatMessageWithUserEntity>(

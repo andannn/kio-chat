@@ -70,4 +70,8 @@ class MockRepositoryImpl : Repository {
         return true
     }
 
+    override suspend fun getMessageList(beforeId: Long?, limit: Int): List<Message> {
+        require(limit > 0) { "limit must be positive" }
+        return messages.filter { beforeId == null || it.id < beforeId }.takeLast(limit)
+    }
 }

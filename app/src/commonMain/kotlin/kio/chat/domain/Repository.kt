@@ -51,6 +51,7 @@ interface Repository {
     suspend fun getOwnMessage(userId: Long, messageId: Long): Message?
     suspend fun updateMessage(userId: Long, messageId: Long, text: String): Boolean
     suspend fun deleteMessage(userId: Long, messageId: Long): Boolean
+    suspend fun getMessageList(beforeId: Long? = null, limit: Int = 50): List<Message>
 }
 
 fun Repository(pgPool: PgConnectionPool): Repository = RepositoryImpl(pgPool)
@@ -115,7 +116,7 @@ internal class RepositoryImpl(
 
         messageEventFlow
             .onSubscription {
-                val messages = pgPool.useConnection { it.getMessageList() }.map { it.toMessage() }
+                val messages = getMessageList()
                 ids.addAll(messages.map { it.id })
                 this@flow.emit(MessageEvent.Initial(messages))
             }
@@ -149,6 +150,14 @@ internal class RepositoryImpl(
     override suspend fun deleteMessage(userId: Long, messageId: Long): Boolean =
         pgPool.useConnection { it.deleteMessage(userId, messageId) }
 
+    override suspend fun getMessageList(
+        beforeId: Long?,
+        limit: Int
+    ): List<Message> {
+        return pgPool.useConnection { it.getMessageList(beforeId, limit) }
+            .map { it.toMessage() }
+            .asReversed()
+    }
 }
 
 private fun ChatUserEntity.toUser() = User(id, username, passwordHash)

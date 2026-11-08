@@ -49,12 +49,12 @@ abstract class DatabaseTest {
 
     @Test
     fun createAndQueryMessagesTest() = withTestPgDatabase {
-        assertEquals(emptyList(), getMessageList())
+        assertEquals(emptyList(), getMessageList(beforeId = null, limit = 50).asReversed())
         assertNull(getMessageById(-1))
         val user = createUser("sender", "hash")!!
         createMessage(user.id, "你好 'quoted' <text>")
         createMessage(user.id, "second")
-        val messages = getMessageList()
+        val messages = getMessageList(beforeId = null, limit = 50).asReversed()
         assertEquals(2, messages.size)
         val (first, second) = messages
         assertEquals(user.id, first.userId)
@@ -63,7 +63,7 @@ abstract class DatabaseTest {
         assertEquals("sender", getMessageById(second.id)?.username)
         assertEquals("你好 'quoted' <text>", first.text)
         assertEquals(first, getMessageById(first.id))
-        assertEquals(listOf(first, second), getMessageList())
+        assertEquals(listOf(first, second), getMessageList(beforeId = null, limit = 50).asReversed())
     }
 
     @Test
@@ -88,7 +88,7 @@ abstract class DatabaseTest {
         val user = createUser("sender", "hash")!!
         exec("LISTEN chat_messages")
         exec("insert into messages(user_id, text) values (${user.id}, 'direct SQL')")
-        val message = getMessageList().single()
+        val message = getMessageList(beforeId = null, limit = 50).asReversed().single()
         val inserted = Json.decodeFromString<ChatMessageNotification>(waitNotification().message)
         assertEquals("INSERT", inserted.operation)
         assertEquals(message.id, inserted.messageId)
@@ -107,7 +107,7 @@ abstract class DatabaseTest {
         val other = createUser("other", "hash")!!
         createMessage(owner.id, "original")
         createMessage(other.id, "keep")
-        val message = getMessageList().first()
+        val message = getMessageList(beforeId = null, limit = 50).asReversed().first()
         assertFalse(updateMessage(other.id, message.id, "forged"))
         assertFalse(deleteMessage(other.id, message.id))
         assertEquals("original", getMessageById(message.id)?.text)
@@ -117,7 +117,20 @@ abstract class DatabaseTest {
         assertNull(getMessageById(message.id))
         assertFalse(updateMessage(owner.id, message.id, "missing"))
         assertFalse(deleteMessage(owner.id, message.id))
-        assertEquals(listOf("keep"), getMessageList().map { it.text })
+        assertEquals(listOf("keep"), getMessageList(beforeId = null, limit = 50).asReversed().map { it.text })
+    }
+
+    @Test
+    fun messageListCursorTest() = withTestPgDatabase {
+        val user = createUser("history", "hash")!!
+        for (i in 1..5) createMessage(user.id, "message-$i")
+        val latest = getMessageList(beforeId = null, limit = 2)
+        assertEquals(listOf("message-5", "message-4"), latest.map { it.text })
+        val earlier = getMessageList(beforeId = latest.last().id, limit = 2)
+        assertEquals(listOf("message-3", "message-2"), earlier.map { it.text })
+        val oldest = getMessageList(beforeId = earlier.last().id, limit = 2)
+        assertEquals(listOf("message-1"), oldest.map { it.text })
+        assertEquals(emptyList(), getMessageList(beforeId = oldest.single().id, limit = 2))
     }
 
     fun withTestPgDatabase(
