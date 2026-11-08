@@ -11,6 +11,7 @@ context(repo: Repository)
 fun Route.messagesRoute() {
     route("messages") {
         post { call -> call.handleNewMessage() }
+        get { call -> call.handleGetMessageHistory() }
 
         websocket("/events") { socket ->
             val userId = requireSession().userId
@@ -40,6 +41,20 @@ fun Route.messagesRoute() {
             delete { call -> call.handleDeleteMessage() }
             get("/editor") { call -> call.handleGetEditingMessage() }
         }
+    }
+}
+
+context(repo: Repository)
+private suspend fun CallContext.handleGetMessageHistory() {
+    val userId = requireSession().userId
+    val beforeId = requestParameters["beforeId"]?.toLongOrNull()?.takeIf { it > 0 }
+    if (beforeId == null) {
+        respond(HttpStatusCode.BadRequest, "Invalid message ID.")
+        return
+    }
+    val messages = repo.getMessageList(beforeId, limit = 51)
+    respondHtml {
+        messageHistory(messages.takeLast(50), userId, hasMore = messages.size > 50)
     }
 }
 

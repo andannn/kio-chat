@@ -8,6 +8,8 @@ fun TagConsumer<*>.messageList(messages: List<Message>, currentUserId: Long) {
     div {
         id = "messages"
         hxSwapOob = "innerHTML"
+
+        messageHistoryControl(messages.firstOrNull()?.id, messages.size == 50)
         messages.forEach { message ->
             article { messageItem(message, message.user.id == currentUserId) }
         }
@@ -96,6 +98,28 @@ fun TagConsumer<*>.messageEditor(message: Message) {
                     +"Cancel"
                 }
                 button(type = ButtonType.submit) { +"Save" }
+            }
+        }
+    }
+}
+
+fun TagConsumer<*>.messageHistory(messages: List<Message>, currentUserId: Long, hasMore: Boolean) {
+    messageHistoryControl(messages.firstOrNull()?.id, hasMore)
+    messages.forEach { message ->
+        article { messageItem(message, message.user.id == currentUserId) }
+    }
+}
+
+private fun TagConsumer<*>.messageHistoryControl(beforeId: Long?, hasMore: Boolean) {
+    div {
+        id = "message-history"
+        if (hasMore && beforeId != null) {
+            button(type = ButtonType.button) {
+                hxGet = "/messages?beforeId=$beforeId"
+                hxTarget = "#message-history"
+                hxSwap = "outerHTML"
+                attributes["hx-disabled-elt"] = "this"
+                +"Load earlier messages"
             }
         }
     }

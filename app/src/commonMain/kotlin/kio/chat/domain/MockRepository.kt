@@ -5,7 +5,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.launch
 import kotlin.uuid.Uuid
 
@@ -17,6 +18,14 @@ class MockRepositoryImpl : Repository {
     private val messages = mutableListOf<Message>()
     private val messageFlow = MutableSharedFlow<MessageEvent>()
     private var nextMessageId = 1L
+
+    init {
+        val user = User(nextUserId++, "demo", hashPassword("demo"))
+        users[user.username] = user
+        repeat(125) {
+            messages.add(Message(nextMessageId++, user, "Mock message ${it + 1}", user.username))
+        }
+    }
 
     override fun CoroutineScope.startWatchingMessageEvent(): Job = launch {}
 
@@ -42,7 +51,16 @@ class MockRepositoryImpl : Repository {
     }
 
     override fun observeMessageEvent(): Flow<MessageEvent> {
-        return messageFlow.asSharedFlow()
+        return flow {
+            val ids = mutableSetOf<Long>()
+            messageFlow.onSubscription {
+                val initial = getMessageList()
+                ids.addAll(initial.map { it.id })
+                this@flow.emit(MessageEvent.Initial(initial))
+            }.collect { event ->
+                if (event !is MessageEvent.Added || ids.add(event.message.id)) emit(event)
+            }
+        }
     }
 
     override suspend fun recordMessage(userId: Long, msg: String) {
