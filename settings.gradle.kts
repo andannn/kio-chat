@@ -28,6 +28,8 @@ dependencyResolutionManagement {
     }
 }
 
-include(":app")
+include(":web:app")
+include(":web:db:schema")
+include(":web:db:migration")
 
-include(":db:schema", ":db:migration")
+include(":domain")

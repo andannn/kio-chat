@@ -29,6 +29,7 @@ kotlin {
             implementation(libs.kio.poller.uring)
         }
         commonMain.dependencies {
+            implementation(project(":domain"))
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kio.http)
             implementation(libs.kio.compression)
@@ -38,7 +39,7 @@ kotlin {
             implementation(libs.kio.io)
         }
         commonTest.dependencies {
-            implementation(project(":db:schema"))
+            implementation(project(":web:db:schema"))
             implementation(libs.kotlin.test)
         }
     }

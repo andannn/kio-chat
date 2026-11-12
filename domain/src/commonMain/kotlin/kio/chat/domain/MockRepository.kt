@@ -1,6 +1,5 @@
 package kio.chat.domain
 
-import kio.chat.util.hashPassword
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
@@ -20,7 +19,7 @@ class MockRepositoryImpl : Repository {
     private var nextMessageId = 1L
 
     init {
-        val user = User(nextUserId++, "demo", hashPassword("demo"))
+        val user = User(nextUserId++, "demo", "demo")
         users[user.username] = user
         repeat(125) {
             messages.add(Message(nextMessageId++, user, "Mock message ${it + 1}", user.username))
@@ -34,11 +33,11 @@ class MockRepositoryImpl : Repository {
     }
 
     override suspend fun verifyPassword(user: User, password: String): Boolean =
-        user.passwordHash == hashPassword(password)
+        user.passwordHash == password
 
     override suspend fun createUser(userName: String, password: String): User? {
         if (users.containsKey(userName)) return null
-        return User(nextUserId++, userName, hashPassword(password)).also { users[userName] = it }
+        return User(nextUserId++, userName, password).also { users[userName] = it }
     }
 
     override suspend fun createSession(userId: Long): String {

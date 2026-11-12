@@ -25,7 +25,7 @@ kotlin {
             implementation(libs.kio.poller.uring)
         }
         commonMain.dependencies {
-            implementation(project(":db:schema"))
+            implementation(project(":web:db:schema"))
             implementation(libs.kio.postgres.connection)
             implementation(libs.kio.io)
         }
