@@ -8,6 +8,7 @@ import kio.chat.database.deleteMessage
 import kio.chat.database.createMessage
 import kio.chat.database.getMessageList
 import kio.chat.database.getMessageById
+import kio.chat.database.deleteSession
 import kio.chat.database.createSession
 import kio.chat.database.createUser
 import kio.chat.database.getUserByUsername
@@ -45,6 +46,7 @@ interface Repository {
     suspend fun verifyPassword(user: User, password: String): Boolean
     suspend fun createUser(userName: String, password: String): User?
     suspend fun createSession(userId: Long): String
+    suspend fun deleteSession(sessionId: String)
     suspend fun getSessionById(sessionId: String): Session?
     fun observeMessageEvent(): Flow<MessageEvent>
     suspend fun recordMessage(userId: Long, msg: String)
@@ -106,6 +108,10 @@ internal class RepositoryImpl(
         val sessionId = Uuid.random().toString()
         pgPool.useConnection { it.createSession(userId, sessionId) }
         return sessionId
+    }
+
+    override suspend fun deleteSession(sessionId: String) {
+        pgPool.useConnection { it.deleteSession(sessionId) }
     }
 
     override suspend fun getSessionById(sessionId: String): Session? =

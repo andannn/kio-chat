@@ -51,6 +51,12 @@ suspend fun PgConnection.createSession(userId: Long, sessionId: String) {
     }
 }
 
+suspend fun PgConnection.deleteSession(sessionId: String) {
+    exec("delete from sessions where id = $1") {
+        param(sessionId, PostgresTextSerializer)
+    }
+}
+
 suspend fun PgConnection.getUserIdBySessionId(sessionId: String): Long? {
     @Serializable
     class UserId(@SerialName("user_id") val userId: PgInt8)

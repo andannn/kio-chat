@@ -46,6 +46,10 @@ class MockRepositoryImpl : Repository {
         return Uuid.random().toString().also { sessions[it] = Session(userId) }
     }
 
+    override suspend fun deleteSession(sessionId: String) {
+        sessions.remove(sessionId)
+    }
+
     override suspend fun getSessionById(sessionId: String): Session? {
         return  sessions[sessionId]
     }

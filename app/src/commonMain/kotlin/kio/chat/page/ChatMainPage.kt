@@ -1,5 +1,8 @@
 package kio.chat.page
 
+import kio.chat.sessionCookie
+import kio.http.appendCookie
+import kio.http.requestCookies
 import kio.http.CallContext
 import kio.http.respondHtml
 import kio.chat.util.*
@@ -18,7 +21,10 @@ fun TagConsumer<*>.chatHead(title: String) {
 }
 
 suspend fun CallContext.chatMainPage() {
-    respondHtml {
+    val sessionId = checkNotNull(requestCookies()["session"])
+    respondHtml(configHeaders = {
+        appendCookie(sessionCookie(sessionId))
+    }) {
         chatHead("Chat")
         body(classes = "app chat-body") {
             main(classes = "chat-layout") {
@@ -27,6 +33,17 @@ suspend fun CallContext.chatMainPage() {
                 attributes["hx-on:htmx:ws-after-message"] = "scrollMessageList(this)"
                 header(classes = "chat-header") {
                     h1 { +"Kio Chat" }
+                    button(type = ButtonType.button, classes = "logout-button") {
+                        hxPost = "/logout"
+                        hxSwap = "none"
+                        span(classes = "logout-icon") {
+                            attributes["aria-hidden"] = "true"
+                            unsafe {
+                                raw("""<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H5v14h4M14 8l4 4-4 4M9 12h9"/></svg>""")
+                            }
+                        }
+                        +"Logout"
+                    }
                 }
                 section(classes = "chat-messages") {
                     id = "messages"
