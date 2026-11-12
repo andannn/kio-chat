@@ -17,6 +17,7 @@ import kio.chat.util.hashPassword
 import kio.postgres.conn.PgConnectionPool
 import kio.postgres.conn.useConnection
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -26,6 +27,22 @@ import kotlinx.serialization.json.Json
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlin.uuid.Uuid
+
+interface Repository {
+    fun CoroutineScope.startWatchingMessageEvent(): Job
+    suspend fun findUserByUsername(userName: String): User?
+    suspend fun verifyPassword(user: User, password: String): Boolean
+    suspend fun createUser(userName: String, password: String): User?
+    suspend fun createSession(userId: Long): String
+    suspend fun deleteSession(sessionId: String)
+    suspend fun getSessionById(sessionId: String): Session?
+    fun observeMessageEvent(): Flow<MessageEvent>
+    suspend fun recordMessage(userId: Long, msg: String)
+    suspend fun getOwnMessage(userId: Long, messageId: Long): Message?
+    suspend fun updateMessage(userId: Long, messageId: Long, text: String): Boolean
+    suspend fun deleteMessage(userId: Long, messageId: Long): Boolean
+    suspend fun getMessageList(beforeId: Long? = null, limit: Int = 50): List<Message>
+}
 
 fun Repository(pgPool: PgConnectionPool): Repository = ServerRepositoryImpl(pgPool)
 

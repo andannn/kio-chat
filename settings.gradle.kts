@@ -28,6 +28,8 @@ dependencyResolutionManagement {
     }
 }
 
+include(":android")
+
 include(":web:app")
 include(":web:db:schema")
 include(":web:db:migration")
