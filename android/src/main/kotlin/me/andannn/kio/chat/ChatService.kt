@@ -2,9 +2,10 @@ package me.andannn.kio.chat
 
 import android.util.Log
 import android.webkit.CookieManager
+import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.HttpClient
-import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.plugins.HttpResponseValidator
 import io.ktor.client.plugins.ResponseException
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.cookies.CookiesStorage
@@ -14,21 +15,39 @@ import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.request.accept
+import io.ktor.client.request.forms.submitForm
 import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpStatusCode
 import io.ktor.http.Url
+import io.ktor.http.Parameters
 import io.ktor.http.contentType
+import io.ktor.http.renderSetCookieHeader
 import io.ktor.serialization.kotlinx.json.json
+import kio.chat.domain.Message
+import kio.chat.domain.MessageEvent
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
 
-interface ChatService {
-    suspend fun smock(): String
+sealed interface ApiError {
+    data class ServerError(val message: String, val t: Throwable? = null): ApiError
+    data object AuthenticationError: ApiError
 }
+
+interface ChatService {
+    suspend fun login(userName: String, password: String): ApiResult<Unit>
+    suspend fun checkLogin(): ApiResult<Unit>
+    suspend fun chatMessageEvent(): Flow<MessageEvent>
+}
+
+data class ApiResult<T>(val value: T?, val error: ApiError?)
 
 class ChatServiceImpl: ChatService {
     private val httpClient =
@@ -40,12 +59,15 @@ class ChatServiceImpl: ChatService {
             }
 
             expectSuccess = true
+            followRedirects = false
 
             defaultRequest {
                 url("https://133.117.75.202:7879/")
                 contentType(ContentType.Application.Json)
                 accept(ContentType.Application.Json)
             }
+
+            install(WebSockets)
 
             install(HttpCookies) {
                 storage = CustomCookiesStorage()
@@ -60,6 +82,20 @@ class ChatServiceImpl: ChatService {
                 )
             }
 
+            HttpResponseValidator {
+                handleResponseExceptionWithRequest { cause, _ ->
+                    val response = (cause as? ResponseException)?.response
+                        ?: return@handleResponseExceptionWithRequest
+
+                    if (
+                        response.status == HttpStatusCode.Found &&
+                        response.headers[HttpHeaders.Location] == "/login"
+                    ) {
+                        throw LoginRequiredException()
+                    }
+                }
+            }
+
             install(Logging) {
                 logger =
                     object : Logger {
@@ -67,40 +103,49 @@ class ChatServiceImpl: ChatService {
                             Log.d("HTTP-SERVICE", "HttpLogInfo: $message")
                         }
                     }
-                level = LogLevel.HEADERS
+                level = LogLevel.ALL
             }
         }
 
-    override suspend fun smock(): String {
+    override suspend fun login(userName: String, password: String): ApiResult<Unit> {
         return tryGetResult {
-            httpClient.get("/login") {}.body<String>()
+            httpClient.submitForm(
+                url = "/login",
+                formParameters = Parameters.build {
+                    append("username", userName)
+                    append("password", password)
+                },
+            ) {
+                contentType(ContentType.Application.FormUrlEncoded)
+            }
         }
+    }
+
+    override suspend fun checkLogin(): ApiResult<Unit> {
+        return tryGetResult {
+            httpClient.get("/")
+        }
+    }
+
+    override suspend fun chatMessageEvent(): Flow<MessageEvent> {
+        TODO("Not yet implemented")
     }
 }
 
-private inline fun <reified T> tryGetResult(block: () -> T): T =
+private suspend inline fun <reified T> tryGetResult(block: () -> T): ApiResult<T> =
     try {
-        block()
+        ApiResult(block(), null)
     } catch (cancellation: CancellationException) {
         throw cancellation
+    } catch (_: LoginRequiredException) {
+        ApiResult(null, ApiError.AuthenticationError)
     } catch (e: ResponseException) {
-        throw ServerResponseException(e.response.status.value, e.message.toString())
+        ApiResult(null, ApiError.ServerError(e.response.bodyAsText(), e))
     } catch (e: Throwable) {
-        throw ServerException(e.message.toString())
+        ApiResult(null, ApiError.ServerError(e.message.toString() ,e))
     }
 
-open class ServerException(
-    override val message: String,
-) : IllegalStateException(message)
-
-/**
- * Represents an error response with status code.
- */
-open class ServerResponseException(
-    val statusCode: Int,
-    override val message: String,
-) : ServerException(message)
-
+private class LoginRequiredException: Exception("Login required")
 private class CustomCookiesStorage : CookiesStorage {
 
     private val cookieManager = CookieManager.getInstance()
@@ -108,8 +153,8 @@ private class CustomCookiesStorage : CookiesStorage {
     override suspend fun get(requestUrl: Url): List<Cookie> {
         val cookieString = cookieManager.getCookie(
             requestUrl.toString()
-        ) ?: return emptyList()
-
+        )
+        if (cookieString == null) return emptyList()
         return cookieString.split(";")
             .mapNotNull { item ->
                 val parts = item.trim().split("=", limit = 2)
@@ -129,9 +174,10 @@ private class CustomCookiesStorage : CookiesStorage {
         suspendCancellableCoroutine { continuation ->
             cookieManager.setCookie(
                 requestUrl.toString(),
-                cookie.toString()
+                renderSetCookieHeader(cookie)
             ) {
                 if (continuation.isActive) {
+                    cookieManager.flush()
                     continuation.resume(Unit)
                 }
             }

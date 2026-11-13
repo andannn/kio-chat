@@ -5,6 +5,7 @@ import kio.http.*
 import kio.chat.domain.Repository
 import kio.chat.page.chatLoginPage
 import kio.chat.page.chatRegisterPage
+import kio.chat.util.respondByContentType
 import kotlinx.html.div
 
 context(_: Repository)
@@ -66,14 +67,24 @@ private suspend fun CallContext.handleLogin() {
     val password = params["password"]
 
     if (username.isNullOrBlank() || password.isNullOrBlank()) {
-        respondError("Username and password are required.")
+        val error = "Username and password are required."
+        respondByContentType(
+            HttpStatusCode.BadRequest,
+            buildJson = { error },
+            buildHtml = { div { +error } }
+        )
         return
     }
 
     val user = repo.findUserByUsername(username)
 
     if (user == null || !repo.verifyPassword(user, password)) {
-        respondError("Invalid username or password.")
+        val error = "Invalid username or password."
+        respondByContentType(
+            HttpStatusCode.BadRequest,
+            buildJson = { error },
+            buildHtml = { div { +error } }
+        )
         return
     }
 
@@ -101,9 +112,7 @@ private suspend fun CallContext.handleLogout() {
 
 private suspend fun CallContext.respondError(message: String) {
     respondHtml {
-        div {
-            +message
-        }
+        div { +message }
     }
 }
 

@@ -6,6 +6,7 @@ import kio.chat.domain.MessageEvent
 import kio.chat.domain.Repository
 import kio.http.*
 import kotlinx.html.stream.createHTML
+import kotlinx.serialization.json.Json
 
 context(repo: Repository)
 fun Route.messagesRoute() {
@@ -13,33 +14,42 @@ fun Route.messagesRoute() {
         post { call -> call.handleNewMessage() }
         get { call -> call.handleGetMessageHistory() }
 
-        websocket("/events") { socket ->
-            val userId = requireSession().userId
-            repo.observeMessageEvent().collect { event ->
-                socket.sendText(createHTML().apply {
-                    when (event) {
-                        is MessageEvent.Initial -> {
-                            messageList(event.message, userId)
-                        }
-                        is MessageEvent.Added -> {
-                            messageAppend(event.message, userId == event.message.user.id)
-                        }
-                        is MessageEvent.Changed -> {
-                            messageChanged(event.message, userId == event.message.user.id)
-                        }
-                        is MessageEvent.Deleted -> {
-                            messageDeleted(event.messageId)
-                        }
-                    }
-                }.finalize())
-            }
-        }
+        websocket("/events") { socket -> socket.handleObserveEvent() }
 
         route("/{id}") {
             get { call -> call.handleGetMessage() }
             patch { call -> call.handleUpdateMessage() }
             delete { call -> call.handleDeleteMessage() }
             get("/editor") { call -> call.handleGetEditingMessage() }
+        }
+    }
+}
+
+context(repo: Repository)
+private suspend fun WebsocketContext.handleObserveEvent() {
+    val format = call.requestParameters["format"]
+    val isJson = format == "json"
+    val userId = requireSession().userId
+    repo.observeMessageEvent().collect { event ->
+        if (isJson) {
+            sendText(Json.encodeToString(event))
+        } else {
+            sendText(createHTML().apply {
+                when (event) {
+                    is MessageEvent.Initial -> {
+                        messageList(event.message, userId)
+                    }
+                    is MessageEvent.Added -> {
+                        messageAppend(event.message, userId == event.message.user.id)
+                    }
+                    is MessageEvent.Changed -> {
+                        messageChanged(event.message, userId == event.message.user.id)
+                    }
+                    is MessageEvent.Deleted -> {
+                        messageDeleted(event.messageId)
+                    }
+                }
+            }.finalize())
         }
     }
 }
