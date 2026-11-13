@@ -25,7 +25,7 @@ suspend fun CallContext.chatMainPage() {
     respondHtml(configHeaders = {
         appendCookie(sessionCookie(sessionId))
     }) {
-        chatHead("Chat")
+        chatHead("Kio Chat")
         body(classes = "app chat-body") {
             main(classes = "chat-layout") {
                 attributes["hx-ext"] = "ws"
@@ -42,7 +42,7 @@ suspend fun CallContext.chatMainPage() {
                                 raw("""<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H5v14h4M14 8l4 4-4 4M9 12h9"/></svg>""")
                             }
                         }
-                        +"Logout"
+                        +"退出登录"
                     }
                 }
                 section(classes = "chat-messages") {
@@ -59,14 +59,14 @@ suspend fun CallContext.chatMainPage() {
                         name = "content"
                         required = true
                         rows = "3"
-                        placeholder = "Write a message…"
-                        attributes["aria-label"] = "Message"
+                        placeholder = "输入消息…"
+                        attributes["aria-label"] = "消息"
                         attributes["hx-on:keydown"] = "handleMessageKeydown(event, this)"
                     }
                     button(type = ButtonType.submit) {
                         id = "send-button"
 
-                        +"Send"
+                        +"发送"
                     }
                 }
             }

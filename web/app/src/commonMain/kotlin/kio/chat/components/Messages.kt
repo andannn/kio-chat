@@ -34,7 +34,7 @@ private fun ARTICLE.messageItem(message: Message, isMine: Boolean) {
     if (isMine) {
         details(classes = "menu message-menu") {
             summary(classes = "menu-trigger") {
-                attributes["aria-label"] = "Message options"
+                attributes["aria-label"] = "消息选项"
                 +"⋯"
             }
             div(classes = "menu-popup") {
@@ -42,13 +42,13 @@ private fun ARTICLE.messageItem(message: Message, isMine: Boolean) {
                     hxGet = "/messages/${message.id}/editor"
                     hxTarget = "closest article"
                     hxSwap = "outerHTML"
-                    +"Edit"
+                    +"编辑"
                 }
                 button(type = ButtonType.button, classes = "menu-item") {
                     hxDelete = "/messages/${message.id}"
                     hxSwap = "none"
-                    hxConfirm = "Delete this message?"
-                    +"Delete"
+                    hxConfirm = "确定删除这条消息吗？"
+                    +"删除"
                 }
             }
         }
@@ -87,7 +87,7 @@ fun TagConsumer<*>.messageEditor(message: Message) {
                 autoFocus = true
                 rows = "3"
                 attributes["maxlength"] = "2000"
-                attributes["aria-label"] = "Edit message"
+                attributes["aria-label"] = "编辑消息"
                 +message.text
             }
             div(classes = "message-edit-actions") {
@@ -95,9 +95,9 @@ fun TagConsumer<*>.messageEditor(message: Message) {
                     hxGet = "/messages/${message.id}"
                     hxTarget = "closest article"
                     hxSwap = "outerHTML"
-                    +"Cancel"
+                    +"取消"
                 }
-                button(type = ButtonType.submit) { +"Save" }
+                button(type = ButtonType.submit) { +"保存" }
             }
         }
     }
@@ -119,7 +119,7 @@ private fun TagConsumer<*>.messageHistoryControl(beforeId: Long?, hasMore: Boole
                 hxTarget = "#message-history"
                 hxSwap = "outerHTML"
                 attributes["hx-disabled-elt"] = "this"
-                +"Load earlier messages"
+                +"加载更早的消息"
             }
         }
     }

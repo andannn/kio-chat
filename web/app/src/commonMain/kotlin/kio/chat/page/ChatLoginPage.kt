@@ -9,7 +9,7 @@ import kotlinx.html.*
 
 suspend fun CallContext.chatLoginPage() {
     respondHtml {
-        chatHead("Login - Kio Chat")
+        chatHead("登录 - Kio Chat")
 
         body(classes = "app login-body") {
             chatLogin()
@@ -26,7 +26,7 @@ fun TagConsumer<*>.chatLogin() {
                 }
 
                 p(classes = "login-subtitle") {
-                    +"Sign in to continue"
+                    +"登录后继续"
                 }
             }
 
@@ -38,7 +38,7 @@ fun TagConsumer<*>.chatLogin() {
                 div(classes = "login-field") {
                     label {
                         htmlFor = "username"
-                        +"Username"
+                        +"用户名"
                     }
 
                     input(
@@ -56,7 +56,7 @@ fun TagConsumer<*>.chatLogin() {
                 div(classes = "login-field") {
                     label {
                         htmlFor = "password"
-                        +"Password"
+                        +"密码"
                     }
 
                     input(
@@ -78,15 +78,15 @@ fun TagConsumer<*>.chatLogin() {
                     type = ButtonType.submit,
                     classes = "login-submit",
                 ) {
-                    +"Sign in"
+                    +"登录"
                 }
             }
         }
 
         p(classes = "auth-footer") {
-            +"Don't have an account? "
+            +"还没有账号？ "
             a(href = "/register") {
-                +"Create account"
+                +"注册账号"
             }
         }
     }

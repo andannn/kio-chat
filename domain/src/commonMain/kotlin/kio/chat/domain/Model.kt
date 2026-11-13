@@ -40,3 +40,16 @@ sealed interface MessageEvent {
     @SerialName("deleted")
     data class Deleted(val messageId: Long) : MessageEvent
 }
+
+@Serializable
+@SerialName("message_pack")
+data class MessagePack(
+    @SerialName("userId") val userId: Long,
+    @SerialName("event") val event: MessageEvent,
+)
+
+@Serializable
+data class MessagePage(
+    @SerialName("messages") val messages: List<Message>,
+    @SerialName("hasMore") val hasMore: Boolean,
+)

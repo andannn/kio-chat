@@ -9,7 +9,7 @@ import kotlinx.html.*
 
 suspend fun CallContext.chatRegisterPage() {
     respondHtml {
-        chatHead("Register - Kio Chat")
+        chatHead("注册 - Kio Chat")
 
         body(classes = "app login-body register-body") {
             chatRegister()
@@ -22,10 +22,10 @@ fun TagConsumer<*>.chatRegister() {
         section(classes = "login-panel") {
             div(classes = "login-header") {
                 h1(classes = "login-title") {
-                    +"Create an account"
+                    +"注册账号"
                 }
                 p(classes = "login-subtitle") {
-                    +"Start chatting with Kio Chat"
+                    +"开始使用 Kio Chat 聊天"
                 }
             }
 
@@ -37,7 +37,7 @@ fun TagConsumer<*>.chatRegister() {
                 div(classes = "login-field") {
                     label {
                         htmlFor = "register-username"
-                        +"Username"
+                        +"用户名"
                     }
                     input(
                         type = InputType.text,
@@ -56,7 +56,7 @@ fun TagConsumer<*>.chatRegister() {
                 div(classes = "login-field") {
                     label {
                         htmlFor = "register-password"
-                        +"Password"
+                        +"密码"
                     }
                     input(
                         type = InputType.password,
@@ -72,7 +72,7 @@ fun TagConsumer<*>.chatRegister() {
                 div(classes = "login-field") {
                     label {
                         htmlFor = "register-confirm-password"
-                        +"Confirm password"
+                        +"确认密码"
                     }
                     input(
                         type = InputType.password,
@@ -95,14 +95,14 @@ fun TagConsumer<*>.chatRegister() {
                     type = ButtonType.submit,
                     classes = "login-submit",
                 ) {
-                    +"Create account"
+                    +"注册账号"
                 }
             }
 
             p(classes = "auth-footer") {
-                +"Already have an account? "
+                +"已有账号？ "
                 a(href = "/login") {
-                    +"Sign in"
+                    +"登录"
                 }
             }
         }

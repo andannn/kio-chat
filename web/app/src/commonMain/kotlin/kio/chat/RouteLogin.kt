@@ -31,18 +31,18 @@ private suspend fun CallContext.handleRegister() {
     val confirmPw = params["confirmPassword"]
 
     if (username.isNullOrEmpty() || password.isNullOrEmpty() || confirmPw.isNullOrEmpty()) {
-        respondError("Please fill in all fields.")
+        respondError("请填写所有信息。")
         return
     }
 
     if (password != confirmPw) {
-        respondError("Passwords do not match.")
+        respondError("两次输入的密码不一致。")
         return
     }
 
     val user = repo.createUser(username, password)
     if (user == null) {
-        respondError("This username is already taken.")
+        respondError("该用户名已被使用。")
         return
     }
 
@@ -67,7 +67,7 @@ private suspend fun CallContext.handleLogin() {
     val password = params["password"]
 
     if (username.isNullOrBlank() || password.isNullOrBlank()) {
-        val error = "Username and password are required."
+        val error = "请输入用户名和密码。"
         respondByContentType(
             HttpStatusCode.BadRequest,
             buildJson = { error },
@@ -79,7 +79,7 @@ private suspend fun CallContext.handleLogin() {
     val user = repo.findUserByUsername(username)
 
     if (user == null || !repo.verifyPassword(user, password)) {
-        val error = "Invalid username or password."
+        val error = "用户名或密码错误。"
         respondByContentType(
             HttpStatusCode.BadRequest,
             buildJson = { error },

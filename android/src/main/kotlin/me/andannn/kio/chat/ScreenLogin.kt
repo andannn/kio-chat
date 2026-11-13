@@ -12,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -112,6 +113,7 @@ private fun Login(
         username = state.username,
         password = state.password,
         modifier = modifier,
+        snackbarHostState = rememberAndSetupSnackBarHostState(),
         onUserNameChanged = {
             state.eventSink.invoke(LoginUiEvent.OnUserNameChanged(it))
         },
@@ -129,19 +131,14 @@ private fun LoginContent(
     username: String,
     password: String,
     modifier: Modifier = Modifier,
+    snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
     onUserNameChanged: (String) -> Unit = {},
     onPasswordChanged: (String) -> Unit = {},
     onLogin: () -> Unit = {},
 ) {
-
     Scaffold(
         modifier = modifier,
-        snackbarHost = {
-            SnackbarHost(
-                modifier = Modifier.padding(bottom = 64.dp),
-                hostState = rememberAndSetupSnackBarHostState(),
-            )
-        }
+        snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { padding ->
         Box(
             modifier = Modifier
@@ -173,7 +170,7 @@ private fun LoginContent(
                                 fontWeight = FontWeight.Bold,
                             )
                             Text(
-                                "Sign in to continue",
+                                "登录后继续",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -182,7 +179,7 @@ private fun LoginContent(
                             value = username,
                             onValueChange = { onUserNameChanged(it) },
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Username") },
+                            label = { Text("用户名") },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                         )
@@ -190,7 +187,7 @@ private fun LoginContent(
                             value = password,
                             onValueChange = { onPasswordChanged(it) },
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Password") },
+                            label = { Text("密码") },
                             singleLine = true,
                             visualTransformation = PasswordVisualTransformation(),
                             keyboardOptions = KeyboardOptions(
@@ -199,17 +196,17 @@ private fun LoginContent(
                             ),
                         )
                         Button(onClick = onLogin, modifier = Modifier.fillMaxWidth()) {
-                            Text("Sign in")
+                            Text("登录")
                         }
                     }
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        "Don't have an account?",
+                        "还没有账号？",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    TextButton(onClick = {}) { Text("Create account") }
+                    TextButton(onClick = {}) { Text("注册账号") }
                 }
             }
         }
@@ -220,6 +217,6 @@ private fun LoginContent(
 @Composable
 private fun LoginPreview() {
     KioChatTheme(dynamicColor = false) {
-        LoginContent("UserName", "Password")
+        LoginContent("用户名", "密码")
     }
 }
