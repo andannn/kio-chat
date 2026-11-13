@@ -12,6 +12,7 @@ compose-bom = "2026.05.01"
 retainedmodel = "1.0.3"
 androidxActivity = "1.13.0"
 ktor = "3.6.1"
+navigation3Ui = "1.2.1"
 
 [libraries]
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version = "1.12.0" }
@@ -43,6 +44,7 @@ compose-ui = { module = "androidx.compose.ui:ui" }
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 retainedmodel = { group = "io.github.andannn", name = "retainedmodel", version.ref = "retainedmodel" }
 androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "androidxActivity" }
+androidx-navigation3-ui = { group = "androidx.navigation3", name = "navigation3-ui", version.ref = "navigation3Ui" }
 
 [plugins]
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }

@@ -9,45 +9,54 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.navigation3.runtime.EntryProviderScope
+import androidx.navigation3.runtime.NavKey
 import me.andannn.kio.chat.util.Presenter
 import me.andannn.kio.chat.util.RetainedPresenter
 import me.andannn.kio.chat.util.retainPresenter
 import org.koin.mp.KoinPlatform.getKoin
 
-private const val TAG = "App"
+fun EntryProviderScope<NavKey>.loginEntry(navigator: Navigator) {
+    entry<Screen.Login> {
+        Login(navigator)
+    }
+}
+
+private const val TAG = "ScreenLogin"
 
 @Composable
-internal fun retainAppState(
-    repository: ChatServiceImpl = getKoin().get(),
+private fun retainAppState(
+    repository: ChatService = getKoin().get(),
 ) = retainPresenter(
     repository
 ) {
-    AppLayoutPresenter(repository)
+    LoginLayoutPresenter(repository)
 }
 
-class AppLayoutState
-internal class AppLayoutPresenter(val repository: ChatService) : RetainedPresenter<AppLayoutState>() {
+private class LoginLayoutState
+private class LoginLayoutPresenter(val repository: ChatService) : RetainedPresenter<LoginLayoutState>() {
     @Composable
-    override fun present(): AppLayoutState {
+    override fun present(): LoginLayoutState {
         LaunchedEffect(Unit) {
             val a = repository.smock()
             Log.d(TAG, "present: $a")
         }
-        return AppLayoutState()
+        return LoginLayoutState()
     }
 }
 
 @Composable
-fun App(
+private fun Login(
+    navigator: Navigator,
     modifier: Modifier = Modifier,
-    presenter: Presenter<AppLayoutState> = retainAppState(),
+    presenter: Presenter<LoginLayoutState> = retainAppState(),
 ) {
     val state = presenter.present()
-    AppContent(modifier = modifier, state = state)
+    LoginContent(state, modifier)
 }
 
 @Composable
-private fun AppContent(state: AppLayoutState, modifier: Modifier = Modifier) {
+private fun LoginContent(state: LoginLayoutState, modifier: Modifier = Modifier) {
     Scaffold(modifier = modifier) {
         LazyColumn(modifier = Modifier.padding(it)) {
             item {
@@ -59,8 +68,8 @@ private fun AppContent(state: AppLayoutState, modifier: Modifier = Modifier) {
 
 @Preview
 @Composable
-fun AppAndroidPreview() {
-    AppContent(
-        AppLayoutState()
+private fun LoginPreview() {
+    LoginContent(
+        LoginLayoutState()
     )
 }

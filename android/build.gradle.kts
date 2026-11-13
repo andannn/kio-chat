@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.serialization)
 }
 
 android {
@@ -97,5 +98,6 @@ dependencies {
     implementation(libs.ktor.serialization.kotlinx.json)
 
     implementation(libs.compose.ui.tooling.preview)
+    implementation(libs.androidx.navigation3.ui)
     debugImplementation(libs.androidx.ui.tooling)
 }
