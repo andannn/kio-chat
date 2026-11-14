@@ -2,6 +2,10 @@ package kio.chat
 
 import io.ktor.http.HttpStatusCode
 import kio.chat.domain.Repository
+import kio.chat.components.roomList
+import kio.chat.components.chatRoomContent
+import kio.http.CallContext
+import kio.http.respondHtml
 import kio.http.CallInterceptor
 import kio.http.Route
 import kio.http.respond
@@ -16,9 +20,11 @@ import kotlin.coroutines.CoroutineContext
 context(repo: Repository)
 fun Route.roomRoute() {
     route("rooms") {
+        get { call -> call.handleGetRoomList() }
         route("{roomId}") {
             inject(RoomId()) {
                 get { call -> call.chatMainPage(requireRoomId()) }
+                get("content") { call -> call.handleGetRoomContent() }
                 messagesRoute()
             }
         }
@@ -49,4 +55,21 @@ private data class CoroutineRoomId(
     companion object Key : CoroutineContext.Key<CoroutineRoomId>
 
     override fun toString(): String = "CoroutineRoomId(${roomId})"
+}
+
+context(repo: Repository)
+private suspend fun CallContext.handleGetRoomList() {
+    val rooms = repo.getRoomList()
+    val selectedRoomId = requestParameters["selectedRoomId"]?.toLongOrNull()
+    respondHtml { roomList(rooms, selectedRoomId) }
+}
+
+context(repo: Repository)
+private suspend fun CallContext.handleGetRoomContent() {
+    val room = repo.getRoomById(requireRoomId())
+    if (room == null) {
+        respond(HttpStatusCode.NotFound, "聊天室不存在。")
+        return
+    }
+    respondHtml { chatRoomContent(room) }
 }
