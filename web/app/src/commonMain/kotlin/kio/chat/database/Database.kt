@@ -181,6 +181,21 @@ suspend fun PgConnection.getRoomById(roomId: Long): ChatRoomEntity? =
         param(roomId, PostgresInt8Serializer)
     }.firstOrNull()
 
+suspend fun PgConnection.updateRoomName(roomId: Long, userId: Long, name: String): Boolean =
+    exec(
+        """
+        UPDATE rooms SET name = $1
+        WHERE id = $2 AND EXISTS (
+            SELECT 1 FROM room_members
+            WHERE room_id = rooms.id AND user_id = $3 AND role = 'owner'
+        )
+        """.trimIndent()
+    ) {
+        param(name, PostgresTextSerializer)
+        param(roomId, PostgresInt8Serializer)
+        param(userId, PostgresInt8Serializer)
+    } == "UPDATE 1"
+
 suspend fun PgConnection.addRoomMember(roomId: Long, userId: Long) {
     exec("INSERT INTO room_members(room_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING") {
         param(roomId, PostgresInt8Serializer)

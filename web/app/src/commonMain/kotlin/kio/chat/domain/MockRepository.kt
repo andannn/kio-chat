@@ -123,6 +123,14 @@ class MockRepositoryImpl : Repository {
 
     override suspend fun getRoomById(roomId: Long): Room? = rooms.find { it.id == roomId }
 
+    override suspend fun updateRoomName(roomId: Long, userId: Long, name: String): Boolean {
+        if (!isRoomOwner(roomId, userId)) return false
+        val index = rooms.indexOfFirst { it.id == roomId }
+        if (index < 0) return false
+        rooms[index] = rooms[index].copy(name = name)
+        return true
+    }
+
     private suspend fun emitJoinRequestEvent(roomId: Long, event: RoomJoinRequestEvent) {
         val owners = roomMembers.filter { it.key.first == roomId && it.value == RoomRole.Owner }.keys
         for ((_, userId) in owners) joinRequestFlow.emit(userId to event)

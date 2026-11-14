@@ -19,6 +19,7 @@ import kio.chat.database.ChatMessageWithUserEntity
 import kio.chat.database.ChatMessageNotification
 import kio.chat.database.ChatRoomMemberNotification
 import kio.chat.database.ChatRoomJoinRequestNotification
+import kio.chat.database.updateRoomName
 import kio.chat.database.updateMessage
 import kio.chat.database.deleteMessage
 import kio.chat.database.createMessage
@@ -62,6 +63,7 @@ interface Repository {
     suspend fun getRoomMembers(roomId: Long): List<RoomMember>
     suspend fun isRoomMember(roomId: Long, userId: Long): Boolean
     suspend fun getRoomById(roomId: Long): Room?
+    suspend fun updateRoomName(roomId: Long, userId: Long, name: String): Boolean
     fun observeRoomJoinRequestEvent(userId: Long): Flow<RoomJoinRequestEvent>
     fun observeRoomListEvent(userId: Long): Flow<RoomListEvent>
     fun observeChatMessageEvent(roomId: Long): Flow<ChatEvent>
@@ -204,6 +206,9 @@ private class ServerRepositoryImpl(
 
     override suspend fun getRoomById(roomId: Long): Room? =
         pgPool.useConnection { it.getRoomById(roomId) }?.toRoom()
+
+    override suspend fun updateRoomName(roomId: Long, userId: Long, name: String): Boolean =
+        pgPool.useConnection { it.updateRoomName(roomId, userId, name) }
 
     override fun observeRoomJoinRequestEvent(userId: Long): Flow<RoomJoinRequestEvent> = flow {
         val ids = mutableSetOf<Long>()
