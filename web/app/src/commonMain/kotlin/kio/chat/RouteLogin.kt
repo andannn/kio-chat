@@ -6,6 +6,7 @@ import kio.chat.domain.Repository
 import kio.chat.page.chatLoginPage
 import kio.chat.page.chatRegisterPage
 import kio.chat.util.respondByContentType
+import kio.chat.util.respondError
 import kotlinx.html.div
 
 context(_: Repository)
@@ -67,24 +68,14 @@ private suspend fun CallContext.handleLogin() {
     val password = params["password"]
 
     if (username.isNullOrBlank() || password.isNullOrBlank()) {
-        val error = "请输入用户名和密码。"
-        respondByContentType(
-            HttpStatusCode.BadRequest,
-            buildJson = { error },
-            buildHtml = { div { +error } }
-        )
+        respondError("请输入用户名和密码。")
         return
     }
 
     val user = repo.findUserByUsername(username)
 
     if (user == null || !repo.verifyPassword(user, password)) {
-        val error = "用户名或密码错误。"
-        respondByContentType(
-            HttpStatusCode.BadRequest,
-            buildJson = { error },
-            buildHtml = { div { +error } }
-        )
+        respondError("用户名或密码错误。")
         return
     }
 
@@ -109,11 +100,3 @@ private suspend fun CallContext.handleLogout() {
         append("HX-Redirect", "/login")
     })
 }
-
-private suspend fun CallContext.respondError(message: String) {
-    respondHtml {
-        div { +message }
-    }
-}
-
-

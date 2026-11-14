@@ -50,6 +50,7 @@ fun ChatApp(
         entryProvider =
             entryProvider {
                 loginEntry(navigator)
+                registerEntry(navigator)
                 homeEntry(navigator)
             },
     )

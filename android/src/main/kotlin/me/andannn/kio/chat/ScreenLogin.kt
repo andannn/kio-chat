@@ -49,12 +49,13 @@ private fun retainAppState(
     repository,
     snackBarController
 ) {
-    LoginLayoutPresenter(navigator,repository, snackBarController)
+    LoginLayoutPresenter(navigator, repository, snackBarController)
 }
 
 sealed interface LoginUiEvent {
     data class OnUserNameChanged(val value: String) : LoginUiEvent
     data class OnUserPasswordChanged(val value: String) : LoginUiEvent
+    data object OnRegisterClick : LoginUiEvent
     data object OnLoginClick : LoginUiEvent
 }
 
@@ -76,25 +77,28 @@ private class LoginLayoutPresenter(
         var username by rememberSaveable { mutableStateOf("") }
         var password by rememberSaveable { mutableStateOf("") }
 
-        return LoginLayoutState(username, password) { event ->
-            when (event) {
-                is LoginUiEvent.OnUserNameChanged -> {
-                    username = event.value
-                }
+        context(navigator, snackBarController) {
+            return LoginLayoutState(username, password) { event ->
+                when (event) {
+                    is LoginUiEvent.OnUserNameChanged -> {
+                        username = event.value
+                    }
 
-                is LoginUiEvent.OnUserPasswordChanged -> {
-                    password = event.value
-                }
+                    is LoginUiEvent.OnUserPasswordChanged -> {
+                        password = event.value
+                    }
 
-                LoginUiEvent.OnLoginClick -> {
-                    retainedScope.launch {
-                        val (_, error) = service.login(username, password)
-                        if (error is ApiError.ServerError) {
-                            snackBarController.showSnackBar(error.message)
-                            return@launch
+                    LoginUiEvent.OnRegisterClick -> navigator.navigateTo(Screen.Register)
+                    LoginUiEvent.OnLoginClick -> {
+                        retainedScope.launch {
+                            val (_, error) = service.login(username, password)
+                            if (error != null) {
+                                handleError(error = error)
+                                return@launch
+                            }
+
+                            navigator.clearTopAndGoToHome()
                         }
-
-                        navigator.navigateTo(Screen.Home)
                     }
                 }
             }
@@ -122,7 +126,8 @@ private fun Login(
         },
         onLogin = {
             state.eventSink.invoke(LoginUiEvent.OnLoginClick)
-        }
+        },
+        onRegister = { state.eventSink(LoginUiEvent.OnRegisterClick) },
     )
 }
 
@@ -135,15 +140,17 @@ private fun LoginContent(
     onUserNameChanged: (String) -> Unit = {},
     onPasswordChanged: (String) -> Unit = {},
     onLogin: () -> Unit = {},
+    onRegister: () -> Unit = {},
 ) {
     Scaffold(
-        modifier = modifier,
+        modifier = modifier.imePadding(),
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { padding ->
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .consumeWindowInsets(padding)
                 .verticalScroll(rememberScrollState())
                 .padding(horizontal = 24.dp, vertical = 32.dp),
             contentAlignment = Alignment.Center,
@@ -206,7 +213,7 @@ private fun LoginContent(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    TextButton(onClick = {}) { Text("注册账号") }
+                    TextButton(onClick = onRegister) { Text("注册账号") }
                 }
             }
         }

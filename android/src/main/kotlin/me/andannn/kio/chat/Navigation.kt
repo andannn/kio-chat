@@ -16,7 +16,8 @@ interface Navigator {
      */
     fun navigateTo(screen: Screen)
 
-    fun popToLogin()
+    fun clearTopAndGoToLogin()
+    fun clearTopAndGoToHome()
 
     /**
      * Pop the current screen from the back stack.
@@ -33,9 +34,14 @@ class RootNavigator :
         backStack?.add(screen) ?: error("backStack is null")
     }
 
-    override fun popToLogin() {
+    override fun clearTopAndGoToLogin() {
         backStack?.clear()
         backStack?.add(Screen.Login)
+    }
+
+    override fun clearTopAndGoToHome() {
+        backStack?.clear()
+        backStack?.add(Screen.Home)
     }
 
     override fun popBackStack() {

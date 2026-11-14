@@ -17,6 +17,7 @@ import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.request.accept
 import io.ktor.client.request.forms.submitForm
+import io.ktor.client.request.post
 import io.ktor.client.request.get
 import io.ktor.client.request.delete
 import io.ktor.client.request.patch
@@ -52,11 +53,13 @@ sealed interface ApiError {
 }
 
 interface ChatService {
+    suspend fun register(userName: String, password: String, confirmPassword: String): ApiResult<Unit>
     suspend fun login(userName: String, password: String): ApiResult<Unit>
     suspend fun sendMessage(content: String): ApiResult<Unit>
     suspend fun updateMessage(messageId: Long, content: String): ApiResult<Unit>
     suspend fun deleteMessage(messageId: Long): ApiResult<Unit>
     suspend fun getMessageHistory(beforeId: Long): ApiResult<MessagePage>
+    suspend fun logout(): ApiResult<Unit>
     suspend fun checkLogin(): ApiResult<Unit>
     suspend fun observeMessageEvents(onEvent: suspend (MessagePack) -> Unit): ApiError?
 }
@@ -121,6 +124,19 @@ class ChatServiceImpl : ChatService {
             }
         }
 
+    override suspend fun register(userName: String, password: String, confirmPassword: String): ApiResult<Unit> = tryGetResult {
+        httpClient.submitForm(
+            url = "/register",
+            formParameters = Parameters.build {
+                append("username", userName)
+                append("password", password)
+                append("confirmPassword", confirmPassword)
+            },
+        ) {
+            contentType(ContentType.Application.FormUrlEncoded)
+        }
+    }
+
     override suspend fun login(userName: String, password: String): ApiResult<Unit> {
         return tryGetResult {
             httpClient.submitForm(
@@ -159,6 +175,10 @@ class ChatServiceImpl : ChatService {
         httpClient.get("/messages") {
             parameter("beforeId", beforeId)
         }.body<MessagePage>()
+    }
+
+    override suspend fun logout(): ApiResult<Unit> = tryGetResult {
+        httpClient.post("/logout")
     }
 
     override suspend fun checkLogin(): ApiResult<Unit> = tryGetResult {

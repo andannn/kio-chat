@@ -87,14 +87,14 @@ abstract class DatabaseTest {
     fun directSqlChangesNotifyTest() = withTestPgDatabase {
         val user = createUser("sender", "hash")!!
         exec("LISTEN chat_messages")
-        exec("insert into messages(user_id, text) values (${user.id}, 'direct SQL')")
+        exec("INSERT INTO messages(user_id, text) VALUES (${user.id}, 'direct SQL')")
         val message = getMessageList(beforeId = null, limit = 50).asReversed().single()
         val inserted = Json.decodeFromString<ChatMessageNotification>(waitNotification().message)
         assertEquals("INSERT", inserted.operation)
         assertEquals(message.id, inserted.messageId)
-        exec("update messages set text = 'edited' where id = ${message.id}")
+        exec("UPDATE messages SET text = 'edited' WHERE id = ${message.id}")
         assertEquals("UPDATE", Json.decodeFromString<ChatMessageNotification>(waitNotification().message).operation)
-        exec("delete from messages where id = ${message.id}")
+        exec("DELETE FROM messages WHERE id = ${message.id}")
         val deleted = Json.decodeFromString<ChatMessageNotification>(waitNotification().message)
         assertEquals("DELETE", deleted.operation)
         assertEquals(message.id, deleted.messageId)

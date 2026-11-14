@@ -8,6 +8,7 @@ import kio.http.CallContext
 import kio.http.respondHtml
 import kio.http.respondText
 import kotlinx.html.TagConsumer
+import kotlinx.html.div
 
 suspend fun CallContext.respondByContentType(
     status: HttpStatusCode,
@@ -34,4 +35,12 @@ suspend fun CallContext.respondByContentType(
             configTrailers = configTrailers,
         )
     }
+}
+
+suspend fun CallContext.respondError(message: String) {
+    respondByContentType(
+        status = HttpStatusCode.BadRequest,
+        buildJson = { message },
+        buildHtml = { div { +message } },
+    )
 }

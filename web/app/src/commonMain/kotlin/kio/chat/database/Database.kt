@@ -17,13 +17,13 @@ import kotlinx.serialization.Serializable
 suspend fun PgConnection.createUser(userName: String, passwordHash: String): ChatUserEntity? {
     val ret: Flow<ChatUserEntity> = query(
         """
-        insert into users (
+        INSERT INTO users (
             username,
             password_hash
         )
-        values ($1, $2)
+        VALUES ($1, $2)
         ON CONFLICT (username) DO NOTHING
-        returning id, username, password_hash, create_at
+        RETURNING id, username, password_hash, create_at
         """.trimIndent()
     ) {
         param(userName, PostgresTextSerializer)
@@ -35,11 +35,11 @@ suspend fun PgConnection.createUser(userName: String, passwordHash: String): Cha
 suspend fun PgConnection.createSession(userId: Long, sessionId: String) {
     val ret = exec(
         """
-            insert into sessions(
+            INSERT INTO sessions(
                 id,
                 user_id
             )
-            values ($1, $2)
+            VALUES ($1, $2)
             """.trimIndent()
     ) {
         param(sessionId, PostgresTextSerializer)
@@ -52,7 +52,7 @@ suspend fun PgConnection.createSession(userId: Long, sessionId: String) {
 }
 
 suspend fun PgConnection.deleteSession(sessionId: String) {
-    exec("delete from sessions where id = $1") {
+    exec("DELETE FROM sessions WHERE id = $1") {
         param(sessionId, PostgresTextSerializer)
     }
 }
@@ -63,10 +63,10 @@ suspend fun PgConnection.getUserIdBySessionId(sessionId: String): Long? {
 
     return query<UserId>(
         """
-            select user_id
-            from sessions
-            where id = $1
-            limit 1
+            SELECT user_id
+            FROM sessions
+            WHERE id = $1
+            LIMIT 1
             """.trimIndent()
     ) {
         param(sessionId, PostgresTextSerializer)
@@ -76,10 +76,10 @@ suspend fun PgConnection.getUserIdBySessionId(sessionId: String): Long? {
 suspend fun PgConnection.getUserByUsername(userName: String): ChatUserEntity? {
     val ret: Flow<ChatUserEntity> = query(
         """
-        select *
-        from users
-        where username = $1
-        limit 1
+        SELECT *
+        FROM users
+        WHERE username = $1
+        LIMIT 1
         """.trimIndent()
     ) {
         param(userName, PostgresTextSerializer)
@@ -92,8 +92,8 @@ suspend fun PgConnection.getUserByUsername(userName: String): ChatUserEntity? {
 suspend fun PgConnection.createMessage(userId: Long, text: String) {
     exec(
         """
-        insert into messages(user_id, text)
-        values ($1, $2)
+        INSERT INTO messages(user_id, text)
+        VALUES ($1, $2)
         """.trimIndent()
     ) {
         param(userId, PostgresInt8Serializer)
@@ -119,16 +119,16 @@ data class ChatMessageWithUserEntity(
 
 suspend fun PgConnection.getMessageList(beforeId: Long?, limit: Int): List<ChatMessageWithUserEntity> {
     require(limit > 0) { "limit must be positive" }
-    val whereClause = if (beforeId != null) "where m.id < $beforeId" else ""
+    val whereClause = if (beforeId != null) "WHERE m.id < $beforeId" else ""
 
     return query<ChatMessageWithUserEntity>(
         """
-        select m.id, m.user_id, m.text, m.create_at, u.username, u.password_hash
-        from messages m
-        join users u on u.id = m.user_id
+        SELECT m.id, m.user_id, m.text, m.create_at, u.username, u.password_hash
+        FROM messages m
+        JOIN users u ON u.id = m.user_id
         $whereClause
-        order by m.id desc
-        limit $limit
+        ORDER BY m.id DESC
+        LIMIT $limit
         """.trimIndent()
     ).toList()
 }
@@ -136,24 +136,24 @@ suspend fun PgConnection.getMessageList(beforeId: Long?, limit: Int): List<ChatM
 suspend fun PgConnection.getMessageById(messageId: Long): ChatMessageWithUserEntity? =
     query<ChatMessageWithUserEntity>(
         """
-        select m.id, m.user_id, m.text, m.create_at, u.username, u.password_hash
-        from messages m
-        join users u on u.id = m.user_id
-        where m.id = $1
+        SELECT m.id, m.user_id, m.text, m.create_at, u.username, u.password_hash
+        FROM messages m
+        JOIN users u ON u.id = m.user_id
+        WHERE m.id = $1
         """.trimIndent()
     ) {
         param(messageId, PostgresInt8Serializer)
     }.firstOrNull()
 
 suspend fun PgConnection.updateMessage(userId: Long, messageId: Long, text: String): Boolean =
-    exec("update messages set text = $1 where id = $2 and user_id = $3") {
+    exec("UPDATE messages SET text = $1 WHERE id = $2 AND user_id = $3") {
         param(text, PostgresTextSerializer)
         param(messageId, PostgresInt8Serializer)
         param(userId, PostgresInt8Serializer)
     } == "UPDATE 1"
 
 suspend fun PgConnection.deleteMessage(userId: Long, messageId: Long): Boolean =
-    exec("delete from messages where id = $1 and user_id = $2") {
+    exec("DELETE FROM messages WHERE id = $1 AND user_id = $2") {
         param(messageId, PostgresInt8Serializer)
         param(userId, PostgresInt8Serializer)
     } == "DELETE 1"

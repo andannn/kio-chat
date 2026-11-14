@@ -61,6 +61,7 @@ sealed interface HomeUiEvent {
     data class OnUpdateMessage(val messageId: Long, val content: String) : HomeUiEvent
     data class OnDeleteMessage(val messageId: Long) : HomeUiEvent
     data object OnLoadHistory : HomeUiEvent
+    data object OnLogoutClick : HomeUiEvent
     data object OnSendClick : HomeUiEvent
 }
 
@@ -145,7 +146,7 @@ private class HomeLayoutPresenter(
 
             if (page != null) {
                 messages.addAll(page.messages.asReversed())
-                historyBeforeId = page.messages.lastOrNull()?.id ?: beforeId
+                historyBeforeId = page.messages.minOfOrNull { it.id } ?: beforeId
                 hasMoreHistory = page.hasMore
             }
         }
@@ -184,6 +185,19 @@ private class HomeLayoutPresenter(
         }
     }
 
+    context(navigator: Navigator, snackBar: SnackBarController)
+    private fun logout() {
+        retainedScope.launch {
+            val (_, error) = service.logout()
+            if (error != null) {
+                handleError(error)
+                return@launch
+            }
+
+            navigator.clearTopAndGoToLogin()
+        }
+    }
+
     @Composable
     override fun present(): HomeLayoutState {
         context(navigator, snackBarController) {
@@ -200,6 +214,7 @@ private class HomeLayoutPresenter(
                     is HomeUiEvent.OnUpdateMessage -> updateMessage(event.messageId, event.content)
                     is HomeUiEvent.OnDeleteMessage -> deleteMessage(event.messageId)
                     HomeUiEvent.OnLoadHistory -> loadHistory()
+                    HomeUiEvent.OnLogoutClick -> logout()
                     HomeUiEvent.OnSendClick -> sendMessage()
                 }
             }
@@ -244,6 +259,7 @@ private fun Home(
         onUpdateMessage = { id, content -> state.eventSink(HomeUiEvent.OnUpdateMessage(id, content)) },
         onDeleteMessage = { state.eventSink(HomeUiEvent.OnDeleteMessage(it)) },
         onSend = { state.eventSink(HomeUiEvent.OnSendClick) },
+        onLogout = { state.eventSink(HomeUiEvent.OnLogoutClick) },
     )
 }
 
