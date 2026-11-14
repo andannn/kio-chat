@@ -31,6 +31,7 @@ suspend fun CallContext.chatMainPage(roomId: Long? = null) {
             aside(classes = "sidebar") {
                 attributes["hx-ext"] = "ws"
                 attributes["ws-connect"] = "/rooms/join-requests/events"
+                attributes["hx-on:htmx:ws-after-message"] = "updateJoinRequestCount(this)"
                 roomAsideMenu(roomId)
             }
             main(classes = "chat-layout") {

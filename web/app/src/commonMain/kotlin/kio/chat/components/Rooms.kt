@@ -155,17 +155,16 @@ private fun TagConsumer<*>.roomJoinRequestsButton() {
         attributes["commandfor"] = "join-requests-dialog"
         attributes["command"] = "show-modal"
         +"入群申请"
-        roomJoinRequestCount(0)
+        roomJoinRequestCount()
     }
 }
 
-fun TagConsumer<*>.roomJoinRequestCount(count: Int, outOfBand: Boolean = false) {
+private fun TagConsumer<*>.roomJoinRequestCount() {
     span(classes = "join-request-count") {
         id = "join-request-count"
-        hidden = count == 0
-        attributes["aria-label"] = "$count 条待处理申请"
-        if (outOfBand) hxSwapOob = "outerHTML"
-        +count.toString()
+        hidden = true
+        attributes["aria-label"] = "0 条待处理申请"
+        +"0"
     }
 }
 

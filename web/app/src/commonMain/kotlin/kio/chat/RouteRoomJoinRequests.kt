@@ -1,7 +1,6 @@
 package kio.chat
 
 import io.ktor.http.HttpStatusCode
-import kio.chat.components.roomJoinRequestCount
 import kio.chat.components.roomJoinRequestInitial
 import kio.chat.components.roomJoinRequestAdded
 import kio.chat.components.roomJoinRequestRemoved
@@ -87,13 +86,7 @@ context(repo: Repository)
 private suspend fun WebsocketContext.handleObserveJoinRequests() {
     val userId = requireSession().userId
     val isJson = call.requestParameters["format"] == "json"
-    var count = 0
     repo.observeRoomJoinRequestEvent(userId).collect { event ->
-        count = when (event) {
-            is RoomJoinRequestEvent.Initial -> event.requests.size
-            is RoomJoinRequestEvent.Added -> count + 1
-            is RoomJoinRequestEvent.Removed -> count - 1
-        }
         if (isJson) {
             sendText(Json.encodeToString(event))
             return@collect
@@ -104,7 +97,6 @@ private suspend fun WebsocketContext.handleObserveJoinRequests() {
                 is RoomJoinRequestEvent.Added -> roomJoinRequestAdded(event.request)
                 is RoomJoinRequestEvent.Removed -> roomJoinRequestRemoved(event.requestId)
             }
-            roomJoinRequestCount(count, outOfBand = true)
         }.finalize())
     }
 }

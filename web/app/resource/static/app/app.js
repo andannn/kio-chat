@@ -25,3 +25,11 @@ function toggleRoomMembers(button) {
         toggle.focus();
     }
 }
+
+function updateJoinRequestCount(container) {
+    const count = container.querySelectorAll("#room-join-requests .join-request").length;
+    const badge = container.querySelector("#join-request-count");
+    badge.textContent = String(count);
+    badge.hidden = count === 0;
+    badge.setAttribute("aria-label", `${count} 条待处理申请`);
+}
