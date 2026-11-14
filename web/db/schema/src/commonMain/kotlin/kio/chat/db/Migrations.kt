@@ -11,6 +11,7 @@ val migrations
         migration5,
         migration6,
         migration7,
+        migration8,
     )
 
 // Test cleanup, matching kio-note. Use only with a dedicated test database.
@@ -19,6 +20,7 @@ suspend fun kio.postgres.conn.PgConnection.dropAllTables() {
     exec("drop table if exists messages cascade")
     exec("drop function if exists notify_chat_message()")
     exec("DROP TABLE IF EXISTS room_join_requests CASCADE")
+    exec("DROP FUNCTION IF EXISTS notify_room_join_request()")
     exec("DROP TABLE IF EXISTS room_members CASCADE")
     exec("DROP FUNCTION IF EXISTS create_user_room() CASCADE")
     exec("DROP TABLE IF EXISTS rooms CASCADE")
@@ -212,5 +214,36 @@ CREATE TABLE room_join_requests (
     create_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (room_id, user_id)
 );
+        """.trimIndent()
+)
+
+private val migration8 = Migration(
+    version = 8,
+    name = "notify room join request changes",
+    sql = """
+CREATE FUNCTION notify_room_join_request() RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+DECLARE
+    request_row room_join_requests%ROWTYPE;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        request_row := OLD;
+    ELSE
+        request_row := NEW;
+    END IF;
+
+    PERFORM pg_notify('room_join_requests', json_build_object(
+        'operation', TG_OP,
+        'request_id', request_row.id,
+        'request_room_id', request_row.room_id,
+        'request_user_id', request_row.user_id
+    )::TEXT);
+    RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER room_join_requests_notify
+    AFTER INSERT OR DELETE ON room_join_requests
+    FOR EACH ROW EXECUTE FUNCTION notify_room_join_request();
         """.trimIndent()
 )

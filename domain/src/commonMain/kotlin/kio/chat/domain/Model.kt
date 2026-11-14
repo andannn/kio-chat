@@ -10,6 +10,7 @@ data class User(
     @SerialName("username") val username: String,
     @SerialName("passwordHash") val passwordHash: String,
 )
+
 @Serializable
 @SerialName("session")
 data class Session(
@@ -26,26 +27,51 @@ data class Message(
 )
 
 @Serializable
-sealed interface MessageEvent {
+sealed interface RoomJoinRequestEvent {
     @Serializable
     @SerialName("initial")
-    data class Initial(val message: List<Message>): MessageEvent
+    data class Initial(
+        val requests: List<RoomJoinRequest>,
+    ) : RoomJoinRequestEvent
+
     @Serializable
     @SerialName("added")
-    data class Added(val message: Message) : MessageEvent
+    data class Added(
+        val request: RoomJoinRequest,
+    ) : RoomJoinRequestEvent
+
+    @Serializable
+    @SerialName("removed")
+    data class Removed(
+        @SerialName("request_id")
+        val requestId: Long,
+    ) : RoomJoinRequestEvent
+}
+
+@Serializable
+sealed interface ChatEvent {
+    @Serializable
+    @SerialName("initial")
+    data class Initial(val message: List<Message>) : ChatEvent
+
+    @Serializable
+    @SerialName("added")
+    data class Added(val message: Message) : ChatEvent
+
     @Serializable
     @SerialName("changed")
-    data class Changed(val message: Message) : MessageEvent
+    data class Changed(val message: Message) : ChatEvent
+
     @Serializable
     @SerialName("deleted")
-    data class Deleted(val messageId: Long) : MessageEvent
+    data class Deleted(val messageId: Long) : ChatEvent
 }
 
 @Serializable
 @SerialName("message_pack")
 data class MessagePack(
     @SerialName("userId") val userId: Long,
-    @SerialName("event") val event: MessageEvent,
+    @SerialName("event") val event: ChatEvent,
 )
 
 @Serializable
@@ -70,6 +96,17 @@ data class RoomMember(
 
 @Serializable
 enum class RoomRole {
-    @SerialName("owner") Owner,
-    @SerialName("member") Member,
+    @SerialName("owner")
+    Owner,
+    @SerialName("member")
+    Member,
 }
+
+@Serializable
+data class RoomJoinRequest(
+    @SerialName("id") val id: Long,
+    @SerialName("roomId") val roomId: Long,
+    @SerialName("roomName") val roomName: String,
+    @SerialName("userId") val userId: Long,
+    @SerialName("username") val username: String,
+)

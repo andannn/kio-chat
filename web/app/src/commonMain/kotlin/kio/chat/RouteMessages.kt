@@ -2,7 +2,7 @@ package kio.chat
 
 import io.ktor.http.*
 import kio.chat.components.*
-import kio.chat.domain.MessageEvent
+import kio.chat.domain.ChatEvent
 import kio.chat.domain.MessagePage
 import kio.chat.util.respondByContentType
 import kio.chat.domain.MessagePack
@@ -17,7 +17,7 @@ fun Route.messagesRoute() {
         post { call -> call.handleNewMessage() }
         get { call -> call.handleGetMessageHistory() }
 
-        websocket("/events") { socket -> socket.handleObserveEvent() }
+        websocket("/events") { socket -> socket.handleObserveChatRoomEvent() }
 
         route("/{id}") {
             get { call -> call.handleGetMessage() }
@@ -29,27 +29,27 @@ fun Route.messagesRoute() {
 }
 
 context(repo: Repository)
-private suspend fun WebsocketContext.handleObserveEvent() {
+private suspend fun WebsocketContext.handleObserveChatRoomEvent() {
     val format = call.requestParameters["format"]
     val isJson = format == "json"
     val userId = requireSession().userId
     val roomId = requireRoomId()
-    repo.observeMessageEvent(roomId).collect { event ->
+    repo.observeChatMessageEvent(roomId).collect { event ->
         if (isJson) {
             sendText(Json.encodeToString(MessagePack(userId, event)))
         } else {
             sendText(createHTML().apply {
                 when (event) {
-                    is MessageEvent.Initial -> {
+                    is ChatEvent.Initial -> {
                         messageList(event.message, userId, roomId)
                     }
-                    is MessageEvent.Added -> {
+                    is ChatEvent.Added -> {
                         messageAppend(event.message, userId == event.message.user.id, roomId)
                     }
-                    is MessageEvent.Changed -> {
+                    is ChatEvent.Changed -> {
                         messageChanged(event.message, userId == event.message.user.id, roomId)
                     }
-                    is MessageEvent.Deleted -> {
+                    is ChatEvent.Deleted -> {
                         messageDeleted(event.messageId)
                     }
                 }

@@ -11,7 +11,7 @@ sealed interface Screen : NavKey {
     @Serializable
     data object Register : Screen
     @Serializable
-    data object RoomList : Screen
+    data object Home : Screen
     @Serializable
     data class RoomChat(val room: Room) : Screen
     @Serializable

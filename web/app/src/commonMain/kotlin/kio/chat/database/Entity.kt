@@ -75,7 +75,16 @@ data class ChatRoomJoinRequestEntity(
 data class ChatRoomJoinRequestWithUserEntity(
     @SerialName("id") val id: PgInt8,
     @SerialName("room_id") val roomId: PgInt8,
+    @SerialName("room_name") val roomName: PgText,
     @SerialName("user_id") val userId: PgInt8,
     @SerialName("username") val username: PgText,
     @SerialName("create_at") val createAt: PgTimestampTz,
+)
+
+@Serializable
+data class ChatRoomJoinRequestNotification(
+    @SerialName("request_id") val requestId: Long,
+    val operation: String,
+    @SerialName("request_room_id") val requestRoomId: Long,
+    @SerialName("request_user_id") val requestUserId: Long,
 )

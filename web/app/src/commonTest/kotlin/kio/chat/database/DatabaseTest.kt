@@ -191,15 +191,15 @@ abstract class DatabaseTest {
         assertNull(createError)
         val request = assertIs<ChatRoomJoinRequestEntity>(created)
         assertEquals(null to CreateRoomJoinRequestError.RequestAlreadyExist, createRoomJoinRequest(room.id, applicant.id))
-        assertTrue(getRoomJoinRequests(room.id, other.id).isEmpty())
-        assertEquals(applicant.username, getRoomJoinRequests(room.id, owner.id).single().username)
+        assertTrue(getRoomJoinRequests(other.id).isEmpty())
+        assertEquals(applicant.username, getRoomJoinRequests(owner.id).single().username)
         assertFalse(approveRoomJoinRequest(request.id, other.id))
         assertFalse(rejectRoomJoinRequest(request.id, applicant.id))
         assertTrue(approveRoomJoinRequest(request.id, owner.id))
         assertTrue(isRoomMember(room.id, applicant.id))
         assertEquals("member", getRoomMembers(room.id).first { it.userId == applicant.id }.role)
         assertFalse(approveRoomJoinRequest(request.id, owner.id))
-        assertTrue(getRoomJoinRequests(room.id, owner.id).isEmpty())
+        assertTrue(getRoomJoinRequests(owner.id).isEmpty())
 
         val (rejectedRequest, rejectError) = createRoomJoinRequest(room.id, other.id)
         assertNull(rejectError)
@@ -210,6 +210,57 @@ abstract class DatabaseTest {
         val (resubmitted, resubmitError) = createRoomJoinRequest(room.id, other.id)
         assertNull(resubmitError)
         assertIs<ChatRoomJoinRequestEntity>(resubmitted)
+    }
+
+    @Test
+    fun pendingRoomJoinRequestsTest() = withTestPgDatabase {
+        val owner = createUser("pending-owner", "hash")!!
+        val otherOwner = createUser("other-owner", "hash")!!
+        val applicant = createUser("pending-applicant", "hash")!!
+        val firstRoom = getUserRoomList(owner.id).single()
+        val secondRoom = getUserRoomList(otherOwner.id).single()
+        exec("INSERT INTO room_members(room_id, user_id, role) VALUES (${secondRoom.id}, ${owner.id}, 'owner')")
+        assertNull(createRoomJoinRequest(firstRoom.id, applicant.id).second)
+        assertNull(createRoomJoinRequest(secondRoom.id, applicant.id).second)
+
+        val pending = getRoomJoinRequests(owner.id)
+        assertEquals(listOf(firstRoom.id, secondRoom.id), pending.map { it.roomId })
+        assertEquals(listOf(firstRoom.name, secondRoom.name), pending.map { it.roomName })
+        assertTrue(pending.all { it.userId == applicant.id && it.username == applicant.username })
+        assertEquals(listOf(secondRoom.id), getRoomJoinRequests(otherOwner.id).map { it.roomId })
+        assertTrue(getRoomJoinRequests(applicant.id).isEmpty())
+    }
+
+    @Test
+    fun roomJoinRequestNotificationsTest() = withTestPgDatabase {
+        val owner = createUser("notify-owner", "hash")!!
+        val applicant = createUser("notify-applicant", "hash")!!
+        val room = getUserRoomList(owner.id).single()
+        exec("LISTEN room_join_requests")
+
+        suspend fun assertNotification(operation: String, requestId: Long) {
+            val notification = waitNotification()
+            assertEquals("room_join_requests", notification.channel)
+            val event = Json.decodeFromString<ChatRoomJoinRequestNotification>(notification.message)
+            assertEquals(operation, event.operation)
+            assertEquals(requestId, event.requestId)
+            assertEquals(room.id, event.requestRoomId)
+            assertEquals(applicant.id, event.requestUserId)
+        }
+
+        val rejected = createRoomJoinRequest(room.id, applicant.id).first!!
+        assertNotification("INSERT", rejected.id)
+        val request = getRoomJoinRequestById(rejected.id)!!
+        assertEquals(room.name, request.roomName)
+        assertEquals(applicant.username, request.username)
+        assertTrue(rejectRoomJoinRequest(rejected.id, owner.id))
+        assertNotification("DELETE", rejected.id)
+        assertNull(getRoomJoinRequestById(rejected.id))
+
+        val approved = createRoomJoinRequest(room.id, applicant.id).first!!
+        assertNotification("INSERT", approved.id)
+        assertTrue(approveRoomJoinRequest(approved.id, owner.id))
+        assertNotification("DELETE", approved.id)
     }
 
     fun withTestPgDatabase(

@@ -29,6 +29,8 @@ suspend fun CallContext.chatMainPage(roomId: Long? = null) {
         chatHead("Kio Chat")
         body(classes = "app chat-body") {
             aside(classes = "sidebar") {
+                attributes["hx-ext"] = "ws"
+                attributes["ws-connect"] = "/rooms/join-requests/events"
                 roomAsideMenu(roomId)
             }
             main(classes = "chat-layout") {

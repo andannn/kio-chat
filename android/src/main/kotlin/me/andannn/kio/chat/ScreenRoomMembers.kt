@@ -128,7 +128,7 @@ private fun RoomMembersContent(
                     headlineContent = { Text(member.username) },
                     supportingContent = {
                         Text(when (member.role) {
-                            RoomRole.Owner -> "所有者"
+                            RoomRole.Owner -> "群主"
                             RoomRole.Member -> "成员"
                         })
                     },

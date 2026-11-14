@@ -224,6 +224,19 @@ suspend fun PgConnection.getRoomMembers(roomId: Long): List<ChatRoomMemberEntity
         param(roomId, PostgresInt8Serializer)
     }.toList()
 
+suspend fun PgConnection.getRoomOwners(roomId: Long): List<ChatRoomMemberEntity> =
+    query<ChatRoomMemberEntity>(
+        """
+        SELECT u.id, u.username, rm.role
+        FROM room_members rm
+        JOIN users u ON u.id = rm.user_id
+        WHERE rm.room_id = $1 AND rm.role = 'owner'
+        ORDER BY u.id
+        """.trimIndent()
+    ) {
+        param(roomId, PostgresInt8Serializer)
+    }.toList()
+
 enum class CreateRoomJoinRequestError {
     RoomNotExist,
     MemberAlreadyInRoom,
@@ -265,19 +278,18 @@ suspend fun PgConnection.createRoomJoinRequest(roomId: Long, userId: Long): Pair
         return@transaction request to null
     }
 
-suspend fun PgConnection.getRoomJoinRequests(roomId: Long, ownerId: Long): List<ChatRoomJoinRequestWithUserEntity> =
+suspend fun PgConnection.getRoomJoinRequests(ownerId: Long): List<ChatRoomJoinRequestWithUserEntity> =
     query<ChatRoomJoinRequestWithUserEntity>(
         """
-        SELECT jr.id, jr.room_id, jr.user_id, u.username, jr.create_at
+        SELECT jr.id, jr.room_id, r.name AS room_name, jr.user_id, u.username, jr.create_at
         FROM room_join_requests jr
+        JOIN rooms r ON r.id = jr.room_id
         JOIN users u ON u.id = jr.user_id
         JOIN room_members owner_member ON owner_member.room_id = jr.room_id
-            AND owner_member.user_id = $2 AND owner_member.role = 'owner'
-        WHERE jr.room_id = $1
+            AND owner_member.user_id = $1 AND owner_member.role = 'owner'
         ORDER BY jr.id
         """.trimIndent()
     ) {
-        param(roomId, PostgresInt8Serializer)
         param(ownerId, PostgresInt8Serializer)
     }.toList()
 
@@ -319,3 +331,16 @@ suspend fun PgConnection.rejectRoomJoinRequest(requestId: Long, ownerId: Long): 
         param(requestId, PostgresInt8Serializer)
         param(ownerId, PostgresInt8Serializer)
     } == "DELETE 1"
+
+suspend fun PgConnection.getRoomJoinRequestById(requestId: Long): ChatRoomJoinRequestWithUserEntity? =
+    query<ChatRoomJoinRequestWithUserEntity>(
+        """
+        SELECT jr.id, jr.room_id, r.name AS room_name, jr.user_id, u.username, jr.create_at
+        FROM room_join_requests jr
+        JOIN rooms r ON r.id = jr.room_id
+        JOIN users u ON u.id = jr.user_id
+        WHERE jr.id = $1
+        """.trimIndent()
+    ) {
+        param(requestId, PostgresInt8Serializer)
+    }.firstOrNull()

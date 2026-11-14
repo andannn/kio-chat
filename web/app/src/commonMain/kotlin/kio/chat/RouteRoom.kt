@@ -24,6 +24,7 @@ context(repo: Repository)
 fun Route.roomRoute() {
     route("rooms") {
         get { call -> call.handleGetRoomList() }
+        roomJoinRequestsRoute()
         route("{roomId}") {
             inject(RoomId()) {
                 get { call -> call.chatMainPage(requireRoomId()) }

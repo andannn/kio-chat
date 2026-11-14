@@ -36,6 +36,7 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.client.call.body
 import io.ktor.client.request.parameter
 import kio.chat.domain.Room
+import kio.chat.domain.RoomJoinRequestEvent
 import kio.chat.domain.RoomMember
 import kio.chat.domain.MessagePage
 import kio.chat.domain.MessagePack
@@ -64,6 +65,10 @@ interface ChatService {
     suspend fun logout(): ApiResult<Unit>
     suspend fun getRoomMembers(roomId: Long): ApiResult<List<RoomMember>>
     suspend fun getRoomList(): ApiResult<List<Room>>
+    suspend fun createRoomJoinRequest(roomId: Long): ApiResult<Unit>
+    suspend fun approveRoomJoinRequest(requestId: Long): ApiResult<Unit>
+    suspend fun rejectRoomJoinRequest(requestId: Long): ApiResult<Unit>
+    suspend fun observeRoomJoinRequestEvents(onEvent: suspend (RoomJoinRequestEvent) -> Unit): ApiError?
     suspend fun checkLogin(): ApiResult<Unit>
     suspend fun observeMessageEvents(roomId: Long, onEvent: suspend (MessagePack) -> Unit): ApiError?
 }
@@ -192,6 +197,35 @@ class ChatServiceImpl : ChatService {
     override suspend fun getRoomList(): ApiResult<List<Room>> = tryGetResult {
         httpClient.get("/rooms").body<List<Room>>()
     }
+
+    override suspend fun createRoomJoinRequest(roomId: Long): ApiResult<Unit> = tryGetResult {
+        httpClient.submitForm(
+            url = "/rooms/join-requests",
+            formParameters = Parameters.build { append("roomId", roomId.toString()) },
+        ) {
+            contentType(ContentType.Application.FormUrlEncoded)
+        }
+    }
+
+    override suspend fun approveRoomJoinRequest(requestId: Long): ApiResult<Unit> = tryGetResult {
+        httpClient.post("/rooms/join-requests/$requestId/approve")
+    }
+
+    override suspend fun rejectRoomJoinRequest(requestId: Long): ApiResult<Unit> = tryGetResult {
+        httpClient.delete("/rooms/join-requests/$requestId")
+    }
+
+    override suspend fun observeRoomJoinRequestEvents(
+        onEvent: suspend (RoomJoinRequestEvent) -> Unit,
+    ): ApiError? = tryGetResult {
+        httpClient.webSocket(urlString = "wss://133.117.75.202:7879/rooms/join-requests/events?format=json") {
+            for (frame in incoming) {
+                if (frame is Frame.Text) {
+                    onEvent(Json.decodeFromString<RoomJoinRequestEvent>(frame.readText()))
+                }
+            }
+        }
+    }.error
 
     override suspend fun checkLogin(): ApiResult<Unit> = tryGetResult {
         httpClient.get("/")

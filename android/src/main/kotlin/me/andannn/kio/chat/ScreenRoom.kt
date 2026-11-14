@@ -27,7 +27,7 @@ import androidx.navigation3.runtime.NavKey
 import kio.chat.domain.Message
 import kio.chat.domain.Room as ChatRoom
 import kio.chat.domain.User
-import kio.chat.domain.MessageEvent
+import kio.chat.domain.ChatEvent
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -108,23 +108,23 @@ private class RoomLayoutPresenter(
                 Log.d(TAG, "observeMessageEvents: pack=${pack}")
                 userId = pack.userId
                 when (val event = pack.event) {
-                    is MessageEvent.Initial -> {
+                    is ChatEvent.Initial -> {
                         historyBeforeId = event.message.minOfOrNull { it.id }
                         hasMoreHistory = event.message.size >= 50
                         messages.addAll(event.message.reversed())
                         effectChannel.send(RoomEffect.ScrollToBottom(animated = false))
                     }
-                    is MessageEvent.Added -> {
+                    is ChatEvent.Added -> {
                         messages.add(0, event.message)
                         effectChannel.send(RoomEffect.ScrollToBottom(animated = true))
                     }
-                    is MessageEvent.Changed -> {
+                    is ChatEvent.Changed -> {
                         val index = messages.indexOfFirst { it.id == event.message.id }
                         if (index >= 0) {
                             messages[index] = event.message
                         }
                     }
-                    is MessageEvent.Deleted -> {
+                    is ChatEvent.Deleted -> {
                         messages.removeIf { it.id == event.messageId }
                     }
                 }
@@ -244,6 +244,7 @@ private fun Room(
     }
     RoomContent(
         roomName = room.name,
+        roomId = room.id,
         messages = state.messages,
         message = state.message,
         currentUserId = state.userId,
@@ -266,6 +267,7 @@ private fun Room(
 @Composable
 private fun RoomContent(
     roomName: String,
+    roomId: Long,
     messages: List<Message>,
     message: String,
     modifier: Modifier = Modifier,
@@ -287,7 +289,16 @@ private fun RoomContent(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text(roomName) },
+                title = {
+                    Column {
+                        Text(roomName)
+                        Text(
+                            "房间 ID：$roomId",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                },
                 actions = { TextButton(onClick = onMembersClick) { Text("成员") } },
                 navigationIcon = {
                     IconButton(onClick = {
@@ -363,6 +374,6 @@ private fun RoomPreview() {
         Message(4, bob, "也可以发送多行文字。\n这是第二行。", bob.username),
     )
     KioChatTheme(dynamicColor = false) {
-        RoomContent("Title", messages = messages, message = "正在输入消息…", currentUserId = alice.id)
+        RoomContent("日常交流", roomId = 1, messages = messages, message = "正在输入消息…", currentUserId = alice.id)
     }
 }

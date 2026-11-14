@@ -41,7 +41,7 @@ class RootNavigator :
 
     override fun clearTopAndGoToRooms() {
         backStack?.clear()
-        backStack?.add(Screen.RoomList)
+        backStack?.add(Screen.Home)
     }
 
     override fun popBackStack() {

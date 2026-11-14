@@ -23,7 +23,5 @@ function toggleRoomMembers(button) {
     toggle.setAttribute('aria-expanded', String(!panel.hidden));
     if (panel.hidden) {
         toggle.focus();
-    } else {
-        htmx.trigger(panel, 'members-open');
     }
 }

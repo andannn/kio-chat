@@ -508,3 +508,48 @@ body {
 .members-content li { padding: 9px 10px; overflow-wrap: anywhere; }
 
 .member-role { margin-left: 8px; color: var(--text-muted); font-size: 12px; }
+
+.join-room { margin: 10px; color: var(--text-secondary); font-size: 14px; }
+.join-room summary, .join-requests summary { cursor: pointer; }
+.join-room form { display: grid; gap: 8px; padding-top: 10px; }
+.join-room label { display: grid; gap: 6px; }
+.join-room input { min-width: 0; width: 100%; }
+.join-room input, .join-room button, .join-request button {
+    padding: 8px; border: 1px solid var(--border-strong); border-radius: var(--radius-md);
+    background: var(--bg-surface); color: var(--text-primary); font: inherit;
+}
+.join-room button, .join-request button { cursor: pointer; }
+.join-requests { padding: 12px 16px; overflow-y: auto; border-top: 1px solid var(--border-color); }
+.join-request { padding-block: 12px; border-bottom: 1px solid var(--border-color); }
+.join-request p { margin: 0 0 8px; overflow-wrap: anywhere; }
+.join-request-actions { display: flex; gap: 8px; }
+.chat-header small { color: var(--text-muted); }
+
+.join-requests-dialog {
+    width: 360px;
+    max-height: 70vh;
+    padding: 16px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-md);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+}
+.join-requests-dialog::backdrop { background: rgb(0 0 0 / 45%); }
+.join-requests-dialog .members-header { padding: 0 0 12px; }
+.join-request-room { color: var(--text-secondary); font-size: 13px; }
+
+#room-join-requests:not(:has(.join-request))::before { content: "还没有新的入群申请"; color: var(--text-muted); }
+
+.join-request-count:not([hidden]) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.5em;
+    margin-left: .5em;
+    padding: .1em .45em;
+    border-radius: 999px;
+    background: #b3261e;
+    color: #fff;
+    font-size: .8em;
+    font-weight: 600;
+}
