@@ -179,3 +179,33 @@ suspend fun PgConnection.getRoomById(roomId: Long): ChatRoomEntity? =
     query<ChatRoomEntity>("SELECT id, name, create_at FROM rooms WHERE id = $1") {
         param(roomId, PostgresInt8Serializer)
     }.firstOrNull()
+
+suspend fun PgConnection.addRoomMember(roomId: Long, userId: Long) {
+    exec("INSERT INTO room_members(room_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING") {
+        param(roomId, PostgresInt8Serializer)
+        param(userId, PostgresInt8Serializer)
+    }
+}
+
+suspend fun PgConnection.getUserRoomList(userId: Long): List<ChatRoomEntity> =
+    query<ChatRoomEntity>(
+        """
+        SELECT r.id, r.name, r.create_at
+        FROM rooms r
+        JOIN room_members rm ON rm.room_id = r.id
+        WHERE rm.user_id = $1
+        ORDER BY r.id
+        """.trimIndent()
+    ) {
+        param(userId, PostgresInt8Serializer)
+    }.toList()
+
+suspend fun PgConnection.isRoomMember(roomId: Long, userId: Long): Boolean {
+    @Serializable
+    data class Member(@SerialName("user_id") val userId: PgInt8)
+
+    return query<Member>("SELECT user_id FROM room_members WHERE room_id = $1 AND user_id = $2") {
+        param(roomId, PostgresInt8Serializer)
+        param(userId, PostgresInt8Serializer)
+    }.firstOrNull() != null
+}

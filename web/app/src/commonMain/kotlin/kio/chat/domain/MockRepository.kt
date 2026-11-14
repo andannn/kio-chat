@@ -14,7 +14,8 @@ class MockRepositoryImpl : Repository {
     private val sessions = mutableMapOf<String, Session>()
     private var nextUserId = 1L
 
-    private val rooms = mutableListOf(Room(1, "公共聊天室"))
+    private val rooms = mutableListOf(Room(1, "demo的房间"))
+    private val roomMembers = mutableSetOf(1L to 1L)
     private var nextRoomId = 2L
     private val messageRooms = mutableMapOf<Long, Long>()
     private val messages = mutableListOf<Message>()
@@ -41,7 +42,10 @@ class MockRepositoryImpl : Repository {
 
     override suspend fun createUser(userName: String, password: String): User? {
         if (users.containsKey(userName)) return null
-        return User(nextUserId++, userName, password).also { users[userName] = it }
+        return User(nextUserId++, userName, password).also {
+            users[userName] = it
+            createRoom(it.id, "${it.username}的房间")
+        }
     }
 
     override suspend fun createSession(userId: Long): String {
@@ -57,10 +61,19 @@ class MockRepositoryImpl : Repository {
         return  sessions[sessionId]
     }
 
-    override suspend fun createRoom(name: String): Room =
-        Room(nextRoomId++, name).also { rooms.add(it) }
+    private fun createRoom(userId: Long, name: String): Room {
+        require(users.values.any { it.id == userId }) { "Unknown user" }
+        return Room(nextRoomId++, name).also {
+            rooms.add(it)
+            roomMembers.add(it.id to userId)
+        }
+    }
 
-    override suspend fun getRoomList(): List<Room> = rooms.toList()
+    override suspend fun getRoomList(userId: Long): List<Room> =
+        rooms.filter { (it.id to userId) in roomMembers }
+
+    override suspend fun isRoomMember(roomId: Long, userId: Long): Boolean =
+        (roomId to userId) in roomMembers
 
     override suspend fun getRoomById(roomId: Long): Room? = rooms.find { it.id == roomId }
 

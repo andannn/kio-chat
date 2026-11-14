@@ -8,6 +8,7 @@ val migrations
         migration2,
         migration3,
         migration4,
+        migration5,
     )
 
 // Test cleanup, matching kio-note. Use only with a dedicated test database.
@@ -15,6 +16,8 @@ suspend fun kio.postgres.conn.PgConnection.dropAllTables() {
     exec("drop table if exists schema_migrations cascade")
     exec("drop table if exists messages cascade")
     exec("drop function if exists notify_chat_message()")
+    exec("DROP TABLE IF EXISTS room_members CASCADE")
+    exec("DROP FUNCTION IF EXISTS create_user_room() CASCADE")
     exec("DROP TABLE IF EXISTS rooms CASCADE")
     exec("drop table if exists sessions cascade")
     exec("drop table if exists users cascade")
@@ -121,5 +124,48 @@ BEGIN
     RETURN NULL;
 END;
 $$;
+        """.trimIndent()
+)
+
+private val migration5 = Migration(
+    version = 5,
+    name = "add room members and user rooms",
+    sql = """
+CREATE TABLE room_members (
+    room_id BIGINT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    PRIMARY KEY (room_id, user_id)
+);
+
+CREATE INDEX room_members_user_id_idx ON room_members(user_id);
+
+DO $$
+DECLARE
+    existing_user RECORD;
+    new_room_id BIGINT;
+BEGIN
+    FOR existing_user IN SELECT id, username FROM users LOOP
+        INSERT INTO rooms(name) VALUES (existing_user.username || '的房间')
+            RETURNING id INTO new_room_id;
+        INSERT INTO room_members(room_id, user_id) VALUES (new_room_id, existing_user.id);
+    END LOOP;
+END;
+$$;
+
+CREATE FUNCTION create_user_room() RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+DECLARE
+    new_room_id BIGINT;
+BEGIN
+    INSERT INTO rooms(name) VALUES (NEW.username || '的房间')
+        RETURNING id INTO new_room_id;
+    INSERT INTO room_members(room_id, user_id) VALUES (new_room_id, NEW.id);
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER users_create_room
+    AFTER INSERT ON users
+    FOR EACH ROW EXECUTE FUNCTION create_user_room();
         """.trimIndent()
 )

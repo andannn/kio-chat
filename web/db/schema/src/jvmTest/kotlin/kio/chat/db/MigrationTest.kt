@@ -54,6 +54,32 @@ class MigrationTest {
         assertEquals(listOf(room.id, room.id), messages.map { it.roomId })
     }
 
+    @Test
+    fun migrateFromVer4To5() = withTestPgDatabase {
+        assertIs<MigrationResult.Success>(migrate(migrations, targetVersion = 4))
+        exec("INSERT INTO users(username, password_hash) VALUES ('alice', 'hash'), ('bob', 'hash')")
+        assertIs<MigrationResult.Success>(migrate(migrations, targetVersion = 5))
+
+        @Serializable
+        data class UserRoom(val username: PgText, val name: PgText)
+
+        suspend fun userRooms() = query<UserRoom>(
+            """
+            SELECT u.username, r.name FROM room_members rm
+            JOIN users u ON u.id = rm.user_id
+            JOIN rooms r ON r.id = rm.room_id
+            ORDER BY u.id
+            """.trimIndent()
+        ).toList()
+
+        assertEquals(listOf(UserRoom("alice", "alice的房间"), UserRoom("bob", "bob的房间")), userRooms())
+        exec("INSERT INTO users(username, password_hash) VALUES ('charlie', 'hash')")
+        assertEquals(
+            listOf(UserRoom("alice", "alice的房间"), UserRoom("bob", "bob的房间"), UserRoom("charlie", "charlie的房间")),
+            userRooms(),
+        )
+    }
+
     fun withTestPgDatabase(
         block: suspend PgConnection.() -> Unit
     ) = runPollEventLoop(Select) {

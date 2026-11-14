@@ -1,8 +1,8 @@
 package kio.chat.domain
 
+import kio.chat.database.getUserRoomList
+import kio.chat.database.isRoomMember
 import kio.chat.database.ChatRoomEntity
-import kio.chat.database.createRoom
-import kio.chat.database.getRoomList
 import kio.chat.database.getRoomById
 import kio.chat.database.ChatUserEntity
 import kio.chat.database.ChatMessageWithUserEntity
@@ -40,8 +40,8 @@ interface Repository {
     suspend fun createSession(userId: Long): String
     suspend fun deleteSession(sessionId: String)
     suspend fun getSessionById(sessionId: String): Session?
-    suspend fun createRoom(name: String): Room?
-    suspend fun getRoomList(): List<Room>
+    suspend fun getRoomList(userId: Long): List<Room>
+    suspend fun isRoomMember(roomId: Long, userId: Long): Boolean
     suspend fun getRoomById(roomId: Long): Room?
     fun observeMessageEvent(roomId: Long): Flow<MessageEvent>
     suspend fun recordMessage(userId: Long, msg: String, roomId: Long)
@@ -114,11 +114,11 @@ private class ServerRepositoryImpl(
     override suspend fun getSessionById(sessionId: String): Session? =
         pgPool.useConnection { it.getUserIdBySessionId(sessionId) }?.let { Session(it) }
 
-    override suspend fun createRoom(name: String): Room? =
-        pgPool.useConnection { it.createRoom(name) }?.toRoom()
+    override suspend fun getRoomList(userId: Long): List<Room> =
+        pgPool.useConnection { it.getUserRoomList(userId) }.map { it.toRoom() }
 
-    override suspend fun getRoomList(): List<Room> =
-        pgPool.useConnection { it.getRoomList() }.map { it.toRoom() }
+    override suspend fun isRoomMember(roomId: Long, userId: Long): Boolean =
+        pgPool.useConnection { it.isRoomMember(roomId, userId) }
 
     override suspend fun getRoomById(roomId: Long): Room? =
         pgPool.useConnection { it.getRoomById(roomId) }?.toRoom()

@@ -37,6 +37,7 @@ suspend fun requireRoomId(): Long {
     return currentCoroutineContext()[CoroutineRoomId]?.roomId ?: error("no room id")
 }
 
+context(repo: Repository)
 private fun RoomId() = CallInterceptor { call, proceed ->
     val noteRoomId = call.requestParameters["roomId"]?.toLongOrNull()
     if (noteRoomId == null) {
@@ -44,6 +45,8 @@ private fun RoomId() = CallInterceptor { call, proceed ->
             HttpStatusCode.BadRequest,
             message = "request roomId parameter but get ${call.requestParameters["roomId"]}"
         )
+    } else if (!repo.isRoomMember(noteRoomId, requireSession().userId)) {
+        call.respond(HttpStatusCode.Forbidden, "无权访问该聊天室。")
     } else {
         withContext(CoroutineRoomId(noteRoomId)) {
             proceed(call)
@@ -61,7 +64,7 @@ private data class CoroutineRoomId(
 
 context(repo: Repository)
 private suspend fun CallContext.handleGetRoomList() {
-    val rooms = repo.getRoomList()
+    val rooms = repo.getRoomList(requireSession().userId)
     val selectedRoomId = requestParameters["selectedRoomId"]?.toLongOrNull()
     respondByContentType(
         status = HttpStatusCode.OK,
