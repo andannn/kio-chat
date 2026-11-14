@@ -57,7 +57,7 @@ private fun retainRoomState(
     service: ChatService = getKoin().get(),
     snackBarController: SnackBarController = LocalSnackBarController.current,
 ) = retainPresenter(navigator, room.id, service, snackBarController) {
-    RoomLayoutPresenter(navigator, room.id, service, snackBarController)
+    RoomLayoutPresenter(navigator, room, service, snackBarController)
 }
 
 sealed interface RoomUiEvent {
@@ -65,6 +65,7 @@ sealed interface RoomUiEvent {
     data class OnUpdateMessage(val messageId: Long, val content: String) : RoomUiEvent
     data class OnDeleteMessage(val messageId: Long) : RoomUiEvent
     data object OnLoadHistory : RoomUiEvent
+    data object OnMembersClick : RoomUiEvent
     data object OnBackClick : RoomUiEvent
     data object OnSendClick : RoomUiEvent
 }
@@ -85,10 +86,12 @@ private sealed interface RoomEffect {
 
 private class RoomLayoutPresenter(
     val navigator: Navigator,
-    val roomId: Long,
+    val room: ChatRoom,
     val service: ChatService,
     val snackBarController: SnackBarController,
 ) : RetainedPresenter<RoomLayoutState>() {
+
+    private val roomId get() = room.id
 
     private val effectChannel = Channel<RoomEffect>(Channel.BUFFERED)
     private val effects = effectChannel.receiveAsFlow()
@@ -206,6 +209,7 @@ private class RoomLayoutPresenter(
                     is RoomUiEvent.OnUpdateMessage -> updateMessage(event.messageId, event.content)
                     is RoomUiEvent.OnDeleteMessage -> deleteMessage(event.messageId)
                     RoomUiEvent.OnLoadHistory -> loadHistory()
+                    RoomUiEvent.OnMembersClick -> navigator.navigateTo(Screen.RoomMembers(room))
                     RoomUiEvent.OnBackClick -> navigator.popBackStack()
                     RoomUiEvent.OnSendClick -> sendMessage()
                 }
@@ -254,6 +258,7 @@ private fun Room(
         onDeleteMessage = { state.eventSink(RoomUiEvent.OnDeleteMessage(it)) },
         onSend = { state.eventSink(RoomUiEvent.OnSendClick) },
         onBack = { state.eventSink(RoomUiEvent.OnBackClick) },
+        onMembersClick = { state.eventSink(RoomUiEvent.OnMembersClick) },
     )
 }
 
@@ -273,6 +278,7 @@ private fun RoomContent(
     onMessageChanged: (String) -> Unit = {},
     onSend: () -> Unit = {},
     onBack: () -> Unit = {},
+    onMembersClick: () -> Unit = {},
     onUpdateMessage: (Long, String) -> Unit = { _, _ -> },
     onDeleteMessage: (Long) -> Unit = {},
 ) {
@@ -282,6 +288,7 @@ private fun RoomContent(
         topBar = {
             TopAppBar(
                 title = { Text(roomName) },
+                actions = { TextButton(onClick = onMembersClick) { Text("成员") } },
                 navigationIcon = {
                     IconButton(onClick = {
                         onBack()

@@ -9,6 +9,8 @@ val migrations
         migration3,
         migration4,
         migration5,
+        migration6,
+        migration7,
     )
 
 // Test cleanup, matching kio-note. Use only with a dedicated test database.
@@ -16,6 +18,7 @@ suspend fun kio.postgres.conn.PgConnection.dropAllTables() {
     exec("drop table if exists schema_migrations cascade")
     exec("drop table if exists messages cascade")
     exec("drop function if exists notify_chat_message()")
+    exec("DROP TABLE IF EXISTS room_join_requests CASCADE")
     exec("DROP TABLE IF EXISTS room_members CASCADE")
     exec("DROP FUNCTION IF EXISTS create_user_room() CASCADE")
     exec("DROP TABLE IF EXISTS rooms CASCADE")
@@ -167,5 +170,47 @@ $$;
 CREATE TRIGGER users_create_room
     AFTER INSERT ON users
     FOR EACH ROW EXECUTE FUNCTION create_user_room();
+        """.trimIndent()
+)
+
+private val migration6 = Migration(
+    version = 6,
+    name = "add room member roles",
+    sql = """
+ALTER TABLE room_members
+    ADD COLUMN role TEXT NOT NULL DEFAULT 'member'
+        CHECK (role IN ('owner', 'member'));
+
+UPDATE room_members
+SET role = 'owner'
+WHERE room_id IN (
+    SELECT room_id FROM room_members GROUP BY room_id HAVING COUNT(*) = 1
+);
+
+CREATE OR REPLACE FUNCTION create_user_room() RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+DECLARE
+    new_room_id BIGINT;
+BEGIN
+    INSERT INTO rooms(name) VALUES (NEW.username || '的房间')
+        RETURNING id INTO new_room_id;
+    INSERT INTO room_members(room_id, user_id, role) VALUES (new_room_id, NEW.id, 'owner');
+    RETURN NEW;
+END;
+$$;
+        """.trimIndent()
+)
+
+private val migration7 = Migration(
+    version = 7,
+    name = "add room join requests",
+    sql = """
+CREATE TABLE room_join_requests (
+    id BIGSERIAL PRIMARY KEY,
+    room_id BIGINT NOT NULL REFERENCES rooms(id) ON DELETE CASCADE,
+    user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    create_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (room_id, user_id)
+);
         """.trimIndent()
 )

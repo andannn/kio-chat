@@ -471,9 +471,40 @@ body {
 .room-link:hover, .logout-button:hover { background: var(--hover-bg); }
 .room-link[aria-current="page"] { background: var(--selected-bg); color: var(--text-primary); }
 .room-link:focus-visible, .logout-button:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }
-.chat-room { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.chat-room { display: flex; height: 100%; min-height: 0; }
+.chat-conversation { display: flex; flex: 1; flex-direction: column; min-width: 0; min-height: 0; }
 .chat-empty { display: grid; flex: 1; place-items: center; padding: 24px; color: var(--text-muted); }
 @media (max-width: 600px) {
     .sidebar { flex-basis: 120px; padding: 12px 6px; }
     .sidebar-title { margin-inline: 6px; font-size: 20px; }
 }
+
+.room-members-panel {
+    display: flex;
+    flex: 0 0 240px;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    border-left: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+}
+.room-members-panel[hidden] { display: none; }
+.members-header { display: flex; align-items: center; justify-content: space-between; padding: 16px; gap: 8px; }
+.members-header h2 { margin: 0; font-size: 16px; }
+.members-toggle, .members-close {
+    border: 0;
+    border-radius: var(--radius-md);
+    padding: 8px 12px;
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    cursor: pointer;
+}
+.members-toggle:hover, .members-close:hover { background: var(--hover-bg); }
+.members-toggle[aria-expanded="true"] { background: var(--selected-bg); color: var(--text-primary); }
+.members-toggle:focus-visible, .members-close:focus-visible { outline: 2px solid #a5b4fc; outline-offset: 2px; }
+.members-content { flex: 1; min-height: 0; overflow-y: auto; padding: 0 10px 16px; }
+.members-content ul { margin: 0; padding: 0; list-style: none; }
+.members-content li { padding: 9px 10px; overflow-wrap: anywhere; }
+
+.member-role { margin-left: 8px; color: var(--text-muted); font-size: 12px; }

@@ -4,6 +4,7 @@ import io.ktor.http.HttpStatusCode
 import kio.chat.util.respondByContentType
 import kotlinx.serialization.json.Json
 import kio.chat.domain.Repository
+import kio.chat.components.roomMemberList
 import kio.chat.components.roomList
 import kio.chat.components.chatRoomContent
 import kio.http.CallContext
@@ -26,6 +27,7 @@ fun Route.roomRoute() {
         route("{roomId}") {
             inject(RoomId()) {
                 get { call -> call.chatMainPage(requireRoomId()) }
+                get("members") { call -> call.handleGetRoomMembers() }
                 get("content") { call -> call.handleGetRoomContent() }
                 messagesRoute()
             }
@@ -81,4 +83,14 @@ private suspend fun CallContext.handleGetRoomContent() {
         return
     }
     respondHtml { chatRoomContent(room) }
+}
+
+context(repo: Repository)
+private suspend fun CallContext.handleGetRoomMembers() {
+    val members = repo.getRoomMembers(requireRoomId())
+    respondByContentType(
+        status = HttpStatusCode.OK,
+        buildJson = { Json.encodeToString(members) },
+        buildHtml = { roomMemberList(members) },
+    )
 }

@@ -1,7 +1,9 @@
 package kio.chat.domain
 
 import kio.chat.database.getUserRoomList
+import kio.chat.database.getRoomMembers
 import kio.chat.database.isRoomMember
+import kio.chat.database.ChatRoomMemberEntity
 import kio.chat.database.ChatRoomEntity
 import kio.chat.database.getRoomById
 import kio.chat.database.ChatUserEntity
@@ -41,6 +43,7 @@ interface Repository {
     suspend fun deleteSession(sessionId: String)
     suspend fun getSessionById(sessionId: String): Session?
     suspend fun getRoomList(userId: Long): List<Room>
+    suspend fun getRoomMembers(roomId: Long): List<RoomMember>
     suspend fun isRoomMember(roomId: Long, userId: Long): Boolean
     suspend fun getRoomById(roomId: Long): Room?
     fun observeMessageEvent(roomId: Long): Flow<MessageEvent>
@@ -117,6 +120,9 @@ private class ServerRepositoryImpl(
     override suspend fun getRoomList(userId: Long): List<Room> =
         pgPool.useConnection { it.getUserRoomList(userId) }.map { it.toRoom() }
 
+    override suspend fun getRoomMembers(roomId: Long): List<RoomMember> =
+        pgPool.useConnection { it.getRoomMembers(roomId) }.map { it.toRoomMember() }
+
     override suspend fun isRoomMember(roomId: Long, userId: Long): Boolean =
         pgPool.useConnection { it.isRoomMember(roomId, userId) }
 
@@ -178,3 +184,13 @@ private fun ChatUserEntity.toUser() = User(id, username, passwordHash)
 private fun ChatMessageWithUserEntity.toMessage() = Message(id, User(userId, username, passwordHash), text, username)
 
 private fun ChatRoomEntity.toRoom() = Room(id, name)
+
+private fun ChatRoomMemberEntity.toRoomMember() = RoomMember(
+    userId = userId,
+    username = username,
+    role = when (role) {
+        "owner" -> RoomRole.Owner
+        "member" -> RoomRole.Member
+        else -> error("Unknown room role: $role")
+    },
+)

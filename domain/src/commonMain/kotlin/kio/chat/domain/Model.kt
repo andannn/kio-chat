@@ -60,3 +60,16 @@ data class Room(
     @SerialName("id") val id: Long,
     @SerialName("name") val name: String,
 )
+
+@Serializable
+data class RoomMember(
+    @SerialName("id") val userId: Long,
+    @SerialName("username") val username: String,
+    @SerialName("role") val role: RoomRole = RoomRole.Member,
+)
+
+@Serializable
+enum class RoomRole {
+    @SerialName("owner") Owner,
+    @SerialName("member") Member,
+}

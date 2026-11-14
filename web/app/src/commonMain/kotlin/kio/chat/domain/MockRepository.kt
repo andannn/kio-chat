@@ -15,7 +15,7 @@ class MockRepositoryImpl : Repository {
     private var nextUserId = 1L
 
     private val rooms = mutableListOf(Room(1, "demo的房间"))
-    private val roomMembers = mutableSetOf(1L to 1L)
+    private val roomMembers = mutableMapOf((1L to 1L) to RoomRole.Owner)
     private var nextRoomId = 2L
     private val messageRooms = mutableMapOf<Long, Long>()
     private val messages = mutableListOf<Message>()
@@ -65,12 +65,16 @@ class MockRepositoryImpl : Repository {
         require(users.values.any { it.id == userId }) { "Unknown user" }
         return Room(nextRoomId++, name).also {
             rooms.add(it)
-            roomMembers.add(it.id to userId)
+            roomMembers[it.id to userId] = RoomRole.Owner
         }
     }
 
     override suspend fun getRoomList(userId: Long): List<Room> =
         rooms.filter { (it.id to userId) in roomMembers }
+
+    override suspend fun getRoomMembers(roomId: Long): List<RoomMember> =
+        users.values.filter { (roomId to it.id) in roomMembers }
+            .sortedBy { it.id }.map { RoomMember(it.id, it.username, roomMembers.getValue(roomId to it.id)) }
 
     override suspend fun isRoomMember(roomId: Long, userId: Long): Boolean =
         (roomId to userId) in roomMembers

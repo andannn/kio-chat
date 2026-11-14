@@ -36,6 +36,7 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.client.call.body
 import io.ktor.client.request.parameter
 import kio.chat.domain.Room
+import kio.chat.domain.RoomMember
 import kio.chat.domain.MessagePage
 import kio.chat.domain.MessagePack
 import io.ktor.websocket.Frame
@@ -61,6 +62,7 @@ interface ChatService {
     suspend fun deleteMessage(roomId: Long, messageId: Long): ApiResult<Unit>
     suspend fun getMessageHistory(roomId: Long, beforeId: Long): ApiResult<MessagePage>
     suspend fun logout(): ApiResult<Unit>
+    suspend fun getRoomMembers(roomId: Long): ApiResult<List<RoomMember>>
     suspend fun getRoomList(): ApiResult<List<Room>>
     suspend fun checkLogin(): ApiResult<Unit>
     suspend fun observeMessageEvents(roomId: Long, onEvent: suspend (MessagePack) -> Unit): ApiError?
@@ -181,6 +183,10 @@ class ChatServiceImpl : ChatService {
 
     override suspend fun logout(): ApiResult<Unit> = tryGetResult {
         httpClient.post("/logout")
+    }
+
+    override suspend fun getRoomMembers(roomId: Long): ApiResult<List<RoomMember>> = tryGetResult {
+        httpClient.get("/rooms/$roomId/members").body<List<RoomMember>>()
     }
 
     override suspend fun getRoomList(): ApiResult<List<Room>> = tryGetResult {

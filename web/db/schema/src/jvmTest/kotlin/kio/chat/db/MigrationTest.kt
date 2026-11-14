@@ -80,6 +80,35 @@ class MigrationTest {
         )
     }
 
+    @Test
+    fun migrateFromVer5To6() = withTestPgDatabase {
+        assertIs<MigrationResult.Success>(migrate(migrations, targetVersion = 5))
+        exec("INSERT INTO users(username, password_hash) VALUES ('existing-owner', 'hash')")
+        assertIs<MigrationResult.Success>(migrate(migrations, targetVersion = 6))
+        exec("INSERT INTO users(username, password_hash) VALUES ('new-owner', 'hash')")
+
+        @Serializable
+        data class MemberRole(val username: PgText, val role: PgText)
+        val owners = query<MemberRole>(
+            "SELECT u.username, rm.role FROM room_members rm JOIN users u ON u.id = rm.user_id ORDER BY u.id"
+        ).toList()
+        assertEquals(listOf(MemberRole("existing-owner", "owner"), MemberRole("new-owner", "owner")), owners)
+
+        exec(
+            """
+            INSERT INTO room_members(room_id, user_id)
+            SELECT rm.room_id, new_user.id FROM room_members rm
+            JOIN users owner_user ON owner_user.id = rm.user_id
+            CROSS JOIN users new_user
+            WHERE owner_user.username = 'existing-owner' AND new_user.username = 'new-owner'
+            """.trimIndent()
+        )
+        val roles = query<MemberRole>(
+            "SELECT u.username, rm.role FROM room_members rm JOIN users u ON u.id = rm.user_id WHERE rm.role = 'member'"
+        ).toList()
+        assertEquals(listOf(MemberRole("new-owner", "member")), roles)
+    }
+
     fun withTestPgDatabase(
         block: suspend PgConnection.() -> Unit
     ) = runPollEventLoop(Select) {

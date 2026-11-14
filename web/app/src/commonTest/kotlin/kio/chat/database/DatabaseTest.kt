@@ -179,6 +179,39 @@ abstract class DatabaseTest {
         assertEquals("DELETE", deleted.operation)
     }
 
+    @Test
+    fun roomJoinRequestTest() = withTestPgDatabase {
+        val owner = createUser("request-owner", "hash")!!
+        val applicant = createUser("applicant", "hash")!!
+        val other = createUser("other", "hash")!!
+        val room = getUserRoomList(owner.id).single()
+        assertEquals(null to CreateRoomJoinRequestError.MemberAlreadyInRoom, createRoomJoinRequest(room.id, owner.id))
+        assertEquals(null to CreateRoomJoinRequestError.RoomNotExist, createRoomJoinRequest(-1, applicant.id))
+        val (created, createError) = createRoomJoinRequest(room.id, applicant.id)
+        assertNull(createError)
+        val request = assertIs<ChatRoomJoinRequestEntity>(created)
+        assertEquals(null to CreateRoomJoinRequestError.RequestAlreadyExist, createRoomJoinRequest(room.id, applicant.id))
+        assertTrue(getRoomJoinRequests(room.id, other.id).isEmpty())
+        assertEquals(applicant.username, getRoomJoinRequests(room.id, owner.id).single().username)
+        assertFalse(approveRoomJoinRequest(request.id, other.id))
+        assertFalse(rejectRoomJoinRequest(request.id, applicant.id))
+        assertTrue(approveRoomJoinRequest(request.id, owner.id))
+        assertTrue(isRoomMember(room.id, applicant.id))
+        assertEquals("member", getRoomMembers(room.id).first { it.userId == applicant.id }.role)
+        assertFalse(approveRoomJoinRequest(request.id, owner.id))
+        assertTrue(getRoomJoinRequests(room.id, owner.id).isEmpty())
+
+        val (rejectedRequest, rejectError) = createRoomJoinRequest(room.id, other.id)
+        assertNull(rejectError)
+        val rejected = assertIs<ChatRoomJoinRequestEntity>(rejectedRequest)
+        assertTrue(rejectRoomJoinRequest(rejected.id, owner.id))
+        assertFalse(isRoomMember(room.id, other.id))
+        assertFalse(rejectRoomJoinRequest(rejected.id, owner.id))
+        val (resubmitted, resubmitError) = createRoomJoinRequest(room.id, other.id)
+        assertNull(resubmitError)
+        assertIs<ChatRoomJoinRequestEntity>(resubmitted)
+    }
+
     fun withTestPgDatabase(
         block: suspend PgConnection.() -> Unit
     ) =

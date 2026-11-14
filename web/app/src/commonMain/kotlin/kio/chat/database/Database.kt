@@ -2,6 +2,7 @@ package kio.chat.database
 
 import kio.postgres.conn.PgConnection
 import kio.postgres.conn.param
+import kio.postgres.conn.transaction
 import kio.postgres.conn.query
 import kio.postgres.types.PgInt8
 import kio.postgres.types.PgText
@@ -209,3 +210,112 @@ suspend fun PgConnection.isRoomMember(roomId: Long, userId: Long): Boolean {
         param(userId, PostgresInt8Serializer)
     }.firstOrNull() != null
 }
+
+suspend fun PgConnection.getRoomMembers(roomId: Long): List<ChatRoomMemberEntity> =
+    query<ChatRoomMemberEntity>(
+        """
+        SELECT u.id, u.username, rm.role
+        FROM room_members rm
+        JOIN users u ON u.id = rm.user_id
+        WHERE rm.room_id = $1
+        ORDER BY u.id
+        """.trimIndent()
+    ) {
+        param(roomId, PostgresInt8Serializer)
+    }.toList()
+
+enum class CreateRoomJoinRequestError {
+    RoomNotExist,
+    MemberAlreadyInRoom,
+    RequestAlreadyExist,
+}
+
+suspend fun PgConnection.createRoomJoinRequest(roomId: Long, userId: Long): Pair<ChatRoomJoinRequestEntity?, CreateRoomJoinRequestError?> =
+    transaction { tx ->
+        val room = tx.query<ChatRoomEntity>(
+            "SELECT id, name, create_at FROM rooms WHERE id = $1 FOR KEY SHARE"
+        ) {
+            param(roomId, PostgresInt8Serializer)
+        }.firstOrNull() ?: return@transaction (null to CreateRoomJoinRequestError.RoomNotExist)
+
+        @Serializable
+        data class ExistingMember(@SerialName("user_id") val userId: PgInt8)
+
+        val member = tx.query<ExistingMember>(
+            "SELECT user_id FROM room_members WHERE room_id = $1 AND user_id = $2"
+        ) {
+            param(room.id, PostgresInt8Serializer)
+            param(userId, PostgresInt8Serializer)
+        }.firstOrNull()
+        if (member != null) return@transaction (null to CreateRoomJoinRequestError.MemberAlreadyInRoom)
+
+        val request = tx.query<ChatRoomJoinRequestEntity>(
+            """
+            INSERT INTO room_join_requests(room_id, user_id)
+            VALUES ($1, $2)
+            ON CONFLICT (room_id, user_id) DO NOTHING
+            RETURNING id, room_id, user_id, create_at
+            """.trimIndent()
+        ) {
+            param(room.id, PostgresInt8Serializer)
+            param(userId, PostgresInt8Serializer)
+        }.firstOrNull()
+        if (request == null) return@transaction null to CreateRoomJoinRequestError.RequestAlreadyExist
+
+        return@transaction request to null
+    }
+
+suspend fun PgConnection.getRoomJoinRequests(roomId: Long, ownerId: Long): List<ChatRoomJoinRequestWithUserEntity> =
+    query<ChatRoomJoinRequestWithUserEntity>(
+        """
+        SELECT jr.id, jr.room_id, jr.user_id, u.username, jr.create_at
+        FROM room_join_requests jr
+        JOIN users u ON u.id = jr.user_id
+        JOIN room_members owner_member ON owner_member.room_id = jr.room_id
+            AND owner_member.user_id = $2 AND owner_member.role = 'owner'
+        WHERE jr.room_id = $1
+        ORDER BY jr.id
+        """.trimIndent()
+    ) {
+        param(roomId, PostgresInt8Serializer)
+        param(ownerId, PostgresInt8Serializer)
+    }.toList()
+
+suspend fun PgConnection.approveRoomJoinRequest(requestId: Long, ownerId: Long): Boolean =
+    transaction { tx ->
+        val request = tx.query<ChatRoomJoinRequestEntity>(
+            """
+            SELECT jr.id, jr.room_id, jr.user_id, jr.create_at
+            FROM room_join_requests jr
+            JOIN room_members owner_member ON owner_member.room_id = jr.room_id
+                AND owner_member.user_id = $2 AND owner_member.role = 'owner'
+            WHERE jr.id = $1
+            FOR UPDATE OF jr
+            """.trimIndent()
+        ) {
+            param(requestId, PostgresInt8Serializer)
+            param(ownerId, PostgresInt8Serializer)
+        }.firstOrNull() ?: return@transaction false
+
+        tx.exec("INSERT INTO room_members(room_id, user_id, role) VALUES ($1, $2, 'member') ON CONFLICT DO NOTHING") {
+            param(request.roomId, PostgresInt8Serializer)
+            param(request.userId, PostgresInt8Serializer)
+        }
+        tx.exec("DELETE FROM room_join_requests WHERE id = $1") {
+            param(request.id, PostgresInt8Serializer)
+        }
+        true
+    }
+
+suspend fun PgConnection.rejectRoomJoinRequest(requestId: Long, ownerId: Long): Boolean =
+    exec(
+        """
+        DELETE FROM room_join_requests jr
+        USING room_members owner_member
+        WHERE jr.id = $1 AND owner_member.room_id = jr.room_id
+            AND owner_member.user_id = $2 AND owner_member.role = 'owner'
+        """.trimIndent()
+    ) {
+        param(requestId, PostgresInt8Serializer)
+        param(ownerId, PostgresInt8Serializer)
+    } == "DELETE 1"

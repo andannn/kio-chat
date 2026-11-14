@@ -14,3 +14,16 @@ function scrollMessageList(container) {
         list.scrollTop = list.scrollHeight;
     });
 }
+
+function toggleRoomMembers(button) {
+    const room = button.closest('.chat-room');
+    const panel = room.querySelector('#room-members-panel');
+    const toggle = room.querySelector('.members-toggle');
+    panel.hidden = !panel.hidden;
+    toggle.setAttribute('aria-expanded', String(!panel.hidden));
+    if (panel.hidden) {
+        toggle.focus();
+    } else {
+        htmx.trigger(panel, 'members-open');
+    }
+}

@@ -53,6 +53,7 @@ fun ChatApp(
                 registerEntry(navigator)
                 roomsEntry(navigator)
                 roomEntry(navigator)
+                roomMembersEntry(navigator)
             },
     )
 }

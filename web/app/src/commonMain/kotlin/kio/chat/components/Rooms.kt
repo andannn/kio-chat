@@ -1,5 +1,7 @@
 package kio.chat.components
 
+import kio.chat.domain.RoomRole
+import kio.chat.domain.RoomMember
 import kio.chat.domain.Room
 import kio.chat.util.*
 import kotlinx.html.*
@@ -51,29 +53,73 @@ fun TagConsumer<*>.chatRoomContent(room: Room) {
         attributes["hx-ext"] = "ws"
         attributes["ws-connect"] = "$messagePath/events"
         attributes["hx-on:htmx:ws-after-message"] = "scrollMessageList(this)"
-        header(classes = "chat-header") {
-            h2 { +room.name }
-        }
-        section(classes = "chat-messages") {
-            id = "messages"
-        }
-        form(classes = "chat-composer") {
-            id = "message-form"
-            hxPost = messagePath
-            hxSwap = "none"
-            hxOnAfterRequest = "if (event.detail.successful) this.reset()"
-            textArea {
-                id = "content"
-                name = "content"
-                required = true
-                rows = "3"
-                placeholder = "输入消息…"
-                attributes["aria-label"] = "消息"
-                attributes["hx-on:keydown"] = "handleMessageKeydown(event, this)"
+        div(classes = "chat-conversation") {
+            header(classes = "chat-header") {
+                h2 { +room.name }
+                button(type = ButtonType.button, classes = "members-toggle") {
+                    attributes["aria-controls"] = "room-members-panel"
+                    attributes["aria-expanded"] = "false"
+                    attributes["hx-on:click"] = "toggleRoomMembers(this)"
+                    +"成员"
+                }
             }
-            button(type = ButtonType.submit) {
-                id = "send-button"
-                +"发送"
+            section(classes = "chat-messages") {
+                id = "messages"
+            }
+            form(classes = "chat-composer") {
+                id = "message-form"
+                hxPost = messagePath
+                hxSwap = "none"
+                hxOnAfterRequest = "if (event.detail.successful) this.reset()"
+                textArea {
+                    id = "content"
+                    name = "content"
+                    required = true
+                    rows = "3"
+                    placeholder = "输入消息…"
+                    attributes["aria-label"] = "消息"
+                    attributes["hx-on:keydown"] = "handleMessageKeydown(event, this)"
+                }
+                button(type = ButtonType.submit) {
+                    id = "send-button"
+                    +"发送"
+                }
+            }
+        }
+        aside(classes = "room-members-panel") {
+            id = "room-members-panel"
+            hidden = true
+            attributes["aria-label"] = "房间成员"
+            hxGet = "/rooms/${room.id}/members"
+            hxTrigger = "members-open"
+            hxTarget = "#room-members-list"
+            hxSwap = "innerHTML"
+            header(classes = "members-header") {
+                h2 { +"房间成员" }
+                button(type = ButtonType.button, classes = "members-close") {
+                    attributes["aria-label"] = "关闭成员列表"
+                    attributes["hx-on:click"] = "toggleRoomMembers(this)"
+                    +"×"
+                }
+            }
+            div(classes = "members-content") {
+                id = "room-members-list"
+            }
+        }
+    }
+}
+
+fun TagConsumer<*>.roomMemberList(members: List<RoomMember>) {
+    ul {
+        members.forEach { member ->
+            li {
+                +member.username
+                span(classes = "member-role") {
+                    +when (member.role) {
+                        RoomRole.Owner -> "所有者"
+                        RoomRole.Member -> "成员"
+                    }
+                }
             }
         }
     }
