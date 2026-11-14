@@ -17,6 +17,7 @@ class MockRepositoryImpl : Repository {
 
     private val rooms = mutableListOf(Room(1, "demo的房间"))
     private val roomMembers = mutableMapOf((1L to 1L) to RoomRole.Owner)
+    private val roomListFlow = MutableSharedFlow<Pair<Long, RoomListEvent>>(extraBufferCapacity = 64)
     private val joinRequests = mutableListOf<RoomJoinRequest>()
     private val joinRequestFlow = MutableSharedFlow<Pair<Long, RoomJoinRequestEvent>>(extraBufferCapacity = 64)
     private var nextJoinRequestId = 1L
@@ -93,6 +94,7 @@ class MockRepositoryImpl : Repository {
         val request = joinRequests.find { it.id == requestId } ?: return false
         if (!isRoomOwner(request.roomId, ownerId)) return false
         roomMembers.getOrPut(request.roomId to request.userId) { RoomRole.Member }
+        roomListFlow.emit(request.userId to RoomListEvent.Added(requireNotNull(getRoomById(request.roomId))))
         joinRequests.remove(request)
         emitJoinRequestEvent(request.roomId, RoomJoinRequestEvent.Removed(request.id))
         return true
@@ -138,6 +140,22 @@ class MockRepositoryImpl : Repository {
                 is RoomJoinRequestEvent.Added -> if (ids.add(event.request.id)) emit(event)
                 is RoomJoinRequestEvent.Removed -> if (ids.remove(event.requestId)) emit(event)
                 is RoomJoinRequestEvent.Initial -> Unit
+            }
+        }
+    }
+
+    override fun observeRoomListEvent(userId: Long): Flow<RoomListEvent> = flow {
+        val ids = mutableSetOf<Long>()
+        roomListFlow.onSubscription {
+            val rooms = getRoomList(userId)
+            ids.addAll(rooms.map { it.id })
+            this@flow.emit(RoomListEvent.Initial(rooms))
+        }.collect { (eventUserId, event) ->
+            if (eventUserId != userId) return@collect
+            when (event) {
+                is RoomListEvent.Added -> if (ids.add(event.room.id)) emit(event)
+                is RoomListEvent.Deleted -> if (ids.remove(event.roomId)) emit(event)
+                is RoomListEvent.Initial -> Unit
             }
         }
     }

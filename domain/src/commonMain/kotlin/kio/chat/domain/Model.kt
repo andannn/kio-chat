@@ -27,7 +27,10 @@ data class Message(
 )
 
 @Serializable
-sealed interface RoomJoinRequestEvent {
+sealed interface UserEvent
+
+@Serializable
+sealed interface RoomJoinRequestEvent: UserEvent {
     @Serializable
     @SerialName("initial")
     data class Initial(
@@ -65,6 +68,21 @@ sealed interface ChatEvent {
     @Serializable
     @SerialName("deleted")
     data class Deleted(val messageId: Long) : ChatEvent
+}
+
+@Serializable
+sealed interface RoomListEvent: UserEvent {
+    @Serializable
+    @SerialName("rooms_initial")
+    data class Initial(val rooms: List<Room>): RoomListEvent
+
+    @Serializable
+    @SerialName("room_deleted")
+    data class Deleted(val roomId: Long): RoomListEvent
+
+    @Serializable
+    @SerialName("room_added")
+    data class Added(val room: Room): RoomListEvent
 }
 
 @Serializable

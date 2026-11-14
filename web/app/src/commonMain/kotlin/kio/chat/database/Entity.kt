@@ -88,3 +88,10 @@ data class ChatRoomJoinRequestNotification(
     @SerialName("request_room_id") val requestRoomId: Long,
     @SerialName("request_user_id") val requestUserId: Long,
 )
+
+@Serializable
+data class ChatRoomMemberNotification(
+    @SerialName("operation") val operation: String,
+    @SerialName("room_id") val roomId: Long,
+    @SerialName("user_id") val userId: Long,
+)

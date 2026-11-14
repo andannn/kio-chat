@@ -17,6 +17,7 @@ import kio.chat.database.getRoomById
 import kio.chat.database.ChatUserEntity
 import kio.chat.database.ChatMessageWithUserEntity
 import kio.chat.database.ChatMessageNotification
+import kio.chat.database.ChatRoomMemberNotification
 import kio.chat.database.ChatRoomJoinRequestNotification
 import kio.chat.database.updateMessage
 import kio.chat.database.deleteMessage
@@ -62,6 +63,7 @@ interface Repository {
     suspend fun isRoomMember(roomId: Long, userId: Long): Boolean
     suspend fun getRoomById(roomId: Long): Room?
     fun observeRoomJoinRequestEvent(userId: Long): Flow<RoomJoinRequestEvent>
+    fun observeRoomListEvent(userId: Long): Flow<RoomListEvent>
     fun observeChatMessageEvent(roomId: Long): Flow<ChatEvent>
     suspend fun recordMessage(userId: Long, msg: String, roomId: Long)
     suspend fun getOwnMessage(userId: Long, messageId: Long, roomId: Long): Message?
@@ -83,6 +85,7 @@ private class ServerRepositoryImpl(
         pgPool.useConnection { c ->
             c.exec("LISTEN chat_messages")
             c.exec("LISTEN room_join_requests")
+            c.exec("LISTEN room_members")
             while (currentCoroutineContext().isActive) {
                 val notification = c.waitNotification()
                 when (notification.channel) {
@@ -106,6 +109,23 @@ private class ServerRepositoryImpl(
                             else -> continue
                         }
                         messageEventFlow.emit(MessageEvent.ChatMessageEvent(event.roomId, chatEvent))
+                    }
+
+                    "room_members" -> {
+                        val event = notificationJson.decodeFromString<ChatRoomMemberNotification>(notification.message)
+                        val roomEvent = when (event.operation) {
+                            "DELETE" -> {
+                                RoomListEvent.Deleted(event.roomId)
+                            }
+
+                            "INSERT" -> {
+                                val message = pgPool.useConnection { it.getRoomById(event.roomId) } ?: continue
+                                RoomListEvent.Added(message.toRoom())
+                            }
+
+                            else -> continue
+                        }
+                        messageEventFlow.emit(MessageEvent.RoomsMessage(event.userId, roomEvent))
                     }
 
                     "room_join_requests" -> {
@@ -204,6 +224,25 @@ private class ServerRepositoryImpl(
             }
     }
 
+    override fun observeRoomListEvent(userId: Long): Flow<RoomListEvent> = flow {
+        val ids = mutableSetOf<Long>()
+        messageEventFlow
+            .onSubscription {
+                val requests = getRoomList(userId)
+                ids.addAll(requests.map { it.id })
+                this@flow.emit(RoomListEvent.Initial(requests))
+            }
+            .filterIsInstance<MessageEvent.RoomsMessage>()
+            .collect { (eventUserId, event) ->
+                if (eventUserId != userId) return@collect
+                when (event) {
+                    is RoomListEvent.Added -> if (ids.add(event.room.id)) emit(event)
+                    is RoomListEvent.Deleted -> if (ids.remove(event.roomId)) emit(event)
+                    is RoomListEvent.Initial -> Unit
+                }
+            }
+    }
+
     override fun observeChatMessageEvent(roomId: Long): Flow<ChatEvent> = flow {
         val ids = mutableSetOf<Long>()
 
@@ -257,6 +296,11 @@ private class ServerRepositoryImpl(
 }
 
 private sealed interface MessageEvent {
+    data class RoomsMessage(
+        val userId: Long,
+        val event: RoomListEvent
+    ) : MessageEvent
+
     data class ChatMessageEvent(
         val roomId: Long,
         val event: ChatEvent

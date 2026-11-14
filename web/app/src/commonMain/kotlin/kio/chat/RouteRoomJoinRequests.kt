@@ -1,11 +1,6 @@
 package kio.chat
 
 import io.ktor.http.HttpStatusCode
-import kio.chat.components.roomJoinRequestInitial
-import kio.chat.components.roomJoinRequestAdded
-import kio.chat.components.roomJoinRequestRemoved
-import kio.chat.domain.RoomJoinRequestEvent
-import kotlinx.html.stream.createHTML
 import kio.chat.components.roomJoinRequestList
 import kio.chat.database.CreateRoomJoinRequestError
 import kio.chat.domain.Repository
@@ -19,7 +14,6 @@ fun Route.roomJoinRequestsRoute() {
     route("join-requests") {
         post { call -> call.handleCreateJoinRequest() }
         get { call -> call.handleGetJoinRequests() }
-        websocket("events") { socket -> socket.handleObserveJoinRequests() }
         route("{requestId}") {
             post("approve") { call -> call.handleReviewJoinRequest(approve = true) }
             delete { call -> call.handleReviewJoinRequest(approve = false) }
@@ -80,23 +74,4 @@ private suspend fun CallContext.respondJoinResult(status: HttpStatusCode, messag
         buildJson = { Json.encodeToString(message) },
         buildHtml = { div { +message } },
     )
-}
-
-context(repo: Repository)
-private suspend fun WebsocketContext.handleObserveJoinRequests() {
-    val userId = requireSession().userId
-    val isJson = call.requestParameters["format"] == "json"
-    repo.observeRoomJoinRequestEvent(userId).collect { event ->
-        if (isJson) {
-            sendText(Json.encodeToString(event))
-            return@collect
-        }
-        sendText(createHTML().apply {
-            when (event) {
-                is RoomJoinRequestEvent.Initial -> roomJoinRequestInitial(event.requests)
-                is RoomJoinRequestEvent.Added -> roomJoinRequestAdded(event.request)
-                is RoomJoinRequestEvent.Removed -> roomJoinRequestRemoved(event.requestId)
-            }
-        }.finalize())
-    }
 }

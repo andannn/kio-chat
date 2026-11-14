@@ -1,5 +1,6 @@
 package me.andannn.kio.chat
 
+import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,6 +16,7 @@ import androidx.navigation3.runtime.EntryProviderScope
 import androidx.navigation3.runtime.NavKey
 import kio.chat.domain.Room
 import kio.chat.domain.RoomJoinRequest
+import kio.chat.domain.RoomListEvent
 import kio.chat.domain.RoomJoinRequestEvent
 import me.andannn.kio.chat.widget.RoomJoinRequestsDialog
 import me.andannn.kio.chat.widget.JoinRoomDialog
@@ -31,7 +33,7 @@ import org.koin.mp.KoinPlatform.getKoin
 fun EntryProviderScope<NavKey>.homeEntry(navigator: Navigator) {
     entry<Screen.Home> { Home(navigator) }
 }
-
+private const val TAG = "ScreenHome"
 @Composable
 private fun retainHomeState(
     navigator: Navigator,
@@ -60,37 +62,46 @@ private class HomeLayoutPresenter(
     val service: ChatService,
     val snackBarController: SnackBarController,
 ) : RetainedPresenter<HomeLayoutState>() {
-    private var rooms by mutableStateOf<List<Room>>(emptyList())
+    private val rooms = mutableStateListOf<Room>()
     private val requests = mutableStateListOf<RoomJoinRequest>()
     private var submitting = false
 
     init {
         retainedScope.launch {
-            val (value, error) = service.getRoomList()
-            context(navigator, snackBarController) {
-                if (error != null) handleError(error)
-                else rooms = value.orEmpty()
-            }
-        }
-    }
-
-    init {
-        retainedScope.launch {
-            val error = service.observeRoomJoinRequestEvents { event ->
+            val error = service.observeUserEvents { event ->
+                Log.d(TAG, "observeUserEvents: ${event.javaClass} $event")
                 when (event) {
-                    is RoomJoinRequestEvent.Initial -> {
-                        requests.clear()
-                        requests.addAll(event.requests)
-                    }
-                    is RoomJoinRequestEvent.Added -> {
-                        requests.add(event.request)
-                    }
-                    is RoomJoinRequestEvent.Removed -> requests.removeAll { it.id == event.requestId }
+                    is RoomListEvent -> handleRoomListEvent(event)
+                    is RoomJoinRequestEvent -> handleRoomJoinRequestEvent(event)
                 }
             }
             context(navigator, snackBarController) {
                 if (error != null) handleError(error)
             }
+        }
+    }
+
+    private fun handleRoomJoinRequestEvent(event: RoomJoinRequestEvent) {
+        when (event) {
+            is RoomJoinRequestEvent.Initial -> {
+                requests.clear()
+                requests.addAll(event.requests)
+            }
+            is RoomJoinRequestEvent.Added -> {
+                requests.add(event.request)
+            }
+            is RoomJoinRequestEvent.Removed -> requests.removeAll { it.id == event.requestId }
+        }
+    }
+
+    private fun handleRoomListEvent(event: RoomListEvent) {
+        when (event) {
+            is RoomListEvent.Initial -> {
+                rooms.clear()
+                rooms.addAll(event.rooms)
+            }
+            is RoomListEvent.Added -> rooms.add(event.room)
+            is RoomListEvent.Deleted -> rooms.removeAll { it.id == event.roomId }
         }
     }
 
@@ -242,7 +253,10 @@ private fun HomeContent(
         },
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .consumeWindowInsets(padding),
         ) {
             items(rooms, key = { it.id }) { room ->
                 ListItem(

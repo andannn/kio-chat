@@ -7,7 +7,7 @@ import kio.chat.domain.Room
 import kio.chat.util.*
 import kotlinx.html.*
 
-fun TagConsumer<*>.roomAsideMenu(selectedRoomId: Long? = null) {
+fun TagConsumer<*>.roomAsideMenu() {
     header(classes = "sidebar-header") {
         h1(classes = "sidebar-title") { +"Kio Chat" }
         p(classes = "section-title") { +"聊天室" }
@@ -33,10 +33,6 @@ fun TagConsumer<*>.roomAsideMenu(selectedRoomId: Long? = null) {
     }
     nav(classes = "sidebar-content") {
         attributes["aria-label"] = "聊天室"
-        hxGet = "/rooms?selectedRoomId=${selectedRoomId?.toString().orEmpty()}"
-        hxTrigger = "load"
-        hxTarget = "#room-list-items"
-        hxSwap = "innerHTML"
         div { id = "room-list-items" }
     }
     footer(classes = "sidebar-footer") {
@@ -53,6 +49,7 @@ fun TagConsumer<*>.roomAsideMenu(selectedRoomId: Long? = null) {
 fun TagConsumer<*>.roomList(rooms: List<Room>, selectedRoomId: Long?) {
     rooms.forEach { room ->
         button(type = ButtonType.button, classes = "room-link") {
+            id = "room-link-${room.id}"
             hxGet = "/rooms/${room.id}/content"
             hxTarget = "#room-content"
             hxSwap = "innerHTML"
@@ -66,7 +63,6 @@ fun TagConsumer<*>.roomList(rooms: List<Room>, selectedRoomId: Long?) {
             +room.name
         }
     }
-    if (rooms.isEmpty()) p(classes = "section-title") { +"还没有聊天室，试试加入一个吧" }
 }
 
 fun TagConsumer<*>.chatRoomContent(room: Room) {
@@ -235,6 +231,29 @@ fun TagConsumer<*>.roomJoinRequestAdded(request: RoomJoinRequest) {
 fun TagConsumer<*>.roomJoinRequestRemoved(requestId: Long) {
     div {
         id = "join-request-$requestId"
+        hxSwapOob = "delete"
+    }
+}
+
+fun TagConsumer<*>.roomListInitial(rooms: List<Room>, selectedRoomId: Long?) {
+    div {
+        id = "room-list-items"
+        hxSwapOob = "innerHTML"
+        roomList(rooms, selectedRoomId)
+    }
+}
+
+fun TagConsumer<*>.roomListAdded(room: Room) {
+    div {
+        id = "room-list-items"
+        hxSwapOob = "beforeend"
+        roomList(listOf(room), null)
+    }
+}
+
+fun TagConsumer<*>.roomListDeleted(roomId: Long) {
+    div {
+        id = "room-link-$roomId"
         hxSwapOob = "delete"
     }
 }

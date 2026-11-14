@@ -553,3 +553,5 @@ body {
     font-size: .8em;
     font-weight: 600;
 }
+
+#room-list-items:empty::before { content: "还没有聊天室，试试加入一个吧"; color: var(--text-muted); }
