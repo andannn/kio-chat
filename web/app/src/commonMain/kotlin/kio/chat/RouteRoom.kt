@@ -1,6 +1,8 @@
 package kio.chat
 
 import io.ktor.http.HttpStatusCode
+import kio.chat.util.respondByContentType
+import kotlinx.serialization.json.Json
 import kio.chat.domain.Repository
 import kio.chat.components.roomList
 import kio.chat.components.chatRoomContent
@@ -61,7 +63,11 @@ context(repo: Repository)
 private suspend fun CallContext.handleGetRoomList() {
     val rooms = repo.getRoomList()
     val selectedRoomId = requestParameters["selectedRoomId"]?.toLongOrNull()
-    respondHtml { roomList(rooms, selectedRoomId) }
+    respondByContentType(
+        status = HttpStatusCode.OK,
+        buildJson = { Json.encodeToString(rooms) },
+        buildHtml = { roomList(rooms, selectedRoomId) },
+    )
 }
 
 context(repo: Repository)
