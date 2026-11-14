@@ -1,6 +1,7 @@
 package me.andannn.kio.chat
 
 import androidx.navigation3.runtime.NavKey
+import kio.chat.domain.Room
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -10,5 +11,7 @@ sealed interface Screen : NavKey {
     @Serializable
     data object Register : Screen
     @Serializable
-    data object Home : Screen
+    data object RoomList : Screen
+    @Serializable
+    data class RoomChat(val room: Room) : Screen
 }

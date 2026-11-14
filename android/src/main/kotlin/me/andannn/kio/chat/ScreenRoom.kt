@@ -6,6 +6,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -23,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.navigation3.runtime.EntryProviderScope
 import androidx.navigation3.runtime.NavKey
 import kio.chat.domain.Message
+import kio.chat.domain.Room as ChatRoom
 import kio.chat.domain.User
 import kio.chat.domain.MessageEvent
 import kotlinx.coroutines.launch
@@ -40,52 +43,54 @@ import me.andannn.kio.chat.util.RetainedPresenter
 import me.andannn.kio.chat.util.retainPresenter
 import me.andannn.kio.chat.widget.MessageItem
 
-private const val TAG = "ScreenHome"
-fun EntryProviderScope<NavKey>.homeEntry(navigator: Navigator) {
-    entry<Screen.Home> {
-        Home(navigator)
+private const val TAG = "ScreenRoom"
+fun EntryProviderScope<NavKey>.roomEntry(navigator: Navigator) {
+    entry<Screen.RoomChat> { screen ->
+        Room(navigator, screen.room)
     }
 }
 
 @Composable
-private fun retainHomeState(
+private fun retainRoomState(
     navigator: Navigator,
+    room: ChatRoom,
     service: ChatService = getKoin().get(),
     snackBarController: SnackBarController = LocalSnackBarController.current,
-) = retainPresenter(navigator, service, snackBarController) {
-    HomeLayoutPresenter(navigator, service, snackBarController)
+) = retainPresenter(navigator, room.id, service, snackBarController) {
+    RoomLayoutPresenter(navigator, room.id, service, snackBarController)
 }
 
-sealed interface HomeUiEvent {
-    data class OnMessageChanged(val value: String) : HomeUiEvent
-    data class OnUpdateMessage(val messageId: Long, val content: String) : HomeUiEvent
-    data class OnDeleteMessage(val messageId: Long) : HomeUiEvent
-    data object OnLoadHistory : HomeUiEvent
-    data object OnLogoutClick : HomeUiEvent
-    data object OnSendClick : HomeUiEvent
+sealed interface RoomUiEvent {
+    data class OnMessageChanged(val value: String) : RoomUiEvent
+    data class OnUpdateMessage(val messageId: Long, val content: String) : RoomUiEvent
+    data class OnDeleteMessage(val messageId: Long) : RoomUiEvent
+    data object OnLoadHistory : RoomUiEvent
+    data object OnBackClick : RoomUiEvent
+    data object OnSendClick : RoomUiEvent
 }
 
-private data class HomeLayoutState(
+private data class RoomLayoutState(
     val messages: List<Message> = emptyList(),
     val userId: Long? = null,
     val hasMoreHistory: Boolean = false,
     val isLoadingHistory: Boolean = false,
-    val effects: Flow<HomeEffect> = emptyFlow(),
+    val effects: Flow<RoomEffect> = emptyFlow(),
     val message: String = "",
-    val eventSink: (HomeUiEvent) -> Unit = {},
+    val eventSink: (RoomUiEvent) -> Unit = {},
 )
 
-private sealed interface HomeEffect {
-    data class ScrollToBottom(val animated: Boolean) : HomeEffect
+private sealed interface RoomEffect {
+    data class ScrollToBottom(val animated: Boolean) : RoomEffect
 }
 
-private class HomeLayoutPresenter(
+private class RoomLayoutPresenter(
     val navigator: Navigator,
+    val roomId: Long,
     val service: ChatService,
     val snackBarController: SnackBarController,
-) : RetainedPresenter<HomeLayoutState>() {
+) : RetainedPresenter<RoomLayoutState>() {
 
-    private val effectChannel = Channel<HomeEffect>(Channel.BUFFERED)
+    private val effectChannel = Channel<RoomEffect>(Channel.BUFFERED)
     private val effects = effectChannel.receiveAsFlow()
     var messages = mutableStateListOf<Message>()
     var userId by mutableStateOf<Long?>(null)
@@ -96,7 +101,7 @@ private class HomeLayoutPresenter(
 
     init {
         retainedScope.launch {
-            val error = service.observeMessageEvents { pack ->
+            val error = service.observeMessageEvents(roomId) { pack ->
                 Log.d(TAG, "observeMessageEvents: pack=${pack}")
                 userId = pack.userId
                 when (val event = pack.event) {
@@ -104,11 +109,11 @@ private class HomeLayoutPresenter(
                         historyBeforeId = event.message.minOfOrNull { it.id }
                         hasMoreHistory = event.message.size >= 50
                         messages.addAll(event.message.reversed())
-                        effectChannel.send(HomeEffect.ScrollToBottom(animated = false))
+                        effectChannel.send(RoomEffect.ScrollToBottom(animated = false))
                     }
                     is MessageEvent.Added -> {
                         messages.add(0, event.message)
-                        effectChannel.send(HomeEffect.ScrollToBottom(animated = true))
+                        effectChannel.send(RoomEffect.ScrollToBottom(animated = true))
                     }
                     is MessageEvent.Changed -> {
                         val index = messages.indexOfFirst { it.id == event.message.id }
@@ -136,7 +141,7 @@ private class HomeLayoutPresenter(
 
         retainedScope.launch {
             isLoadingHistory = true
-            val (page, error) = service.getMessageHistory(beforeId)
+            val (page, error) = service.getMessageHistory(roomId, beforeId)
             isLoadingHistory = false
 
             if (error != null) {
@@ -158,7 +163,7 @@ private class HomeLayoutPresenter(
         if (content.isNotEmpty() && content.length <= 2000) {
             retainedScope.launch {
                 currentInput = ""
-                val (_, error) = service.sendMessage(content)
+                val (_, error) = service.sendMessage(roomId, content)
                 if (error != null) {
                     currentInput = content
                     handleError(error)
@@ -172,7 +177,7 @@ private class HomeLayoutPresenter(
         val text = content.trim()
         if (text.isEmpty() || text.length > 2000) return
         retainedScope.launch {
-            val (_, error) = service.updateMessage(messageId, text)
+            val (_, error) = service.updateMessage(roomId, messageId, text)
             if (error != null) handleError(error)
         }
     }
@@ -180,28 +185,15 @@ private class HomeLayoutPresenter(
     context(navigator: Navigator, snackBar: SnackBarController)
     private fun deleteMessage(messageId: Long) {
         retainedScope.launch {
-            val (_, error) = service.deleteMessage(messageId)
+            val (_, error) = service.deleteMessage(roomId, messageId)
             if (error != null) handleError(error)
         }
     }
 
-    context(navigator: Navigator, snackBar: SnackBarController)
-    private fun logout() {
-        retainedScope.launch {
-            val (_, error) = service.logout()
-            if (error != null) {
-                handleError(error)
-                return@launch
-            }
-
-            navigator.clearTopAndGoToLogin()
-        }
-    }
-
     @Composable
-    override fun present(): HomeLayoutState {
+    override fun present(): RoomLayoutState {
         context(navigator, snackBarController) {
-            return HomeLayoutState(
+            return RoomLayoutState(
                 messages = messages,
                 userId = userId,
                 hasMoreHistory = hasMoreHistory,
@@ -210,12 +202,12 @@ private class HomeLayoutPresenter(
                 message = currentInput,
             ) { event ->
                 when (event) {
-                    is HomeUiEvent.OnMessageChanged -> currentInput = event.value
-                    is HomeUiEvent.OnUpdateMessage -> updateMessage(event.messageId, event.content)
-                    is HomeUiEvent.OnDeleteMessage -> deleteMessage(event.messageId)
-                    HomeUiEvent.OnLoadHistory -> loadHistory()
-                    HomeUiEvent.OnLogoutClick -> logout()
-                    HomeUiEvent.OnSendClick -> sendMessage()
+                    is RoomUiEvent.OnMessageChanged -> currentInput = event.value
+                    is RoomUiEvent.OnUpdateMessage -> updateMessage(event.messageId, event.content)
+                    is RoomUiEvent.OnDeleteMessage -> deleteMessage(event.messageId)
+                    RoomUiEvent.OnLoadHistory -> loadHistory()
+                    RoomUiEvent.OnBackClick -> navigator.popBackStack()
+                    RoomUiEvent.OnSendClick -> sendMessage()
                 }
             }
         }
@@ -223,10 +215,11 @@ private class HomeLayoutPresenter(
 }
 
 @Composable
-private fun Home(
+private fun Room(
     navigator: Navigator,
+    room: ChatRoom,
     modifier: Modifier = Modifier,
-    presenter: Presenter<HomeLayoutState> = retainHomeState(navigator),
+    presenter: Presenter<RoomLayoutState> = retainRoomState(navigator, room),
 ) {
     val state = presenter.present()
     val listState = rememberLazyListState()
@@ -234,7 +227,7 @@ private fun Home(
     LaunchedEffect(state.effects, listState) {
         state.effects.collectLatest { effect ->
             when (effect) {
-                is HomeEffect.ScrollToBottom -> {
+                is RoomEffect.ScrollToBottom -> {
                     // Let the list receive the updated message state before scrolling.
                     withFrameNanos { }
                     if (currentMessages.isNotEmpty()) {
@@ -245,27 +238,29 @@ private fun Home(
             }
         }
     }
-    HomeContent(
+    RoomContent(
+        roomName = room.name,
         messages = state.messages,
         message = state.message,
         currentUserId = state.userId,
         hasMoreHistory = state.hasMoreHistory,
         isLoadingHistory = state.isLoadingHistory,
-        onLoadHistory = { state.eventSink(HomeUiEvent.OnLoadHistory) },
+        onLoadHistory = { state.eventSink(RoomUiEvent.OnLoadHistory) },
         modifier = modifier,
         listState = listState,
         snackbarHostState = rememberAndSetupSnackBarHostState(),
-        onMessageChanged = { state.eventSink(HomeUiEvent.OnMessageChanged(it)) },
-        onUpdateMessage = { id, content -> state.eventSink(HomeUiEvent.OnUpdateMessage(id, content)) },
-        onDeleteMessage = { state.eventSink(HomeUiEvent.OnDeleteMessage(it)) },
-        onSend = { state.eventSink(HomeUiEvent.OnSendClick) },
-        onLogout = { state.eventSink(HomeUiEvent.OnLogoutClick) },
+        onMessageChanged = { state.eventSink(RoomUiEvent.OnMessageChanged(it)) },
+        onUpdateMessage = { id, content -> state.eventSink(RoomUiEvent.OnUpdateMessage(id, content)) },
+        onDeleteMessage = { state.eventSink(RoomUiEvent.OnDeleteMessage(it)) },
+        onSend = { state.eventSink(RoomUiEvent.OnSendClick) },
+        onBack = { state.eventSink(RoomUiEvent.OnBackClick) },
     )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HomeContent(
+private fun RoomContent(
+    roomName: String,
     messages: List<Message>,
     message: String,
     modifier: Modifier = Modifier,
@@ -277,7 +272,7 @@ private fun HomeContent(
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
     onMessageChanged: (String) -> Unit = {},
     onSend: () -> Unit = {},
-    onLogout: () -> Unit = {},
+    onBack: () -> Unit = {},
     onUpdateMessage: (Long, String) -> Unit = { _, _ -> },
     onDeleteMessage: (Long) -> Unit = {},
 ) {
@@ -286,9 +281,16 @@ private fun HomeContent(
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
-                title = { Text("Kio Chat") },
-                actions = {
-                    TextButton(onClick = onLogout) { Text("退出登录") }
+                title = { Text(roomName) },
+                navigationIcon = {
+                    IconButton(onClick = {
+                        onBack()
+                    }) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = "返回",
+                        )
+                    }
                 },
             )
         },
@@ -344,7 +346,7 @@ private fun HomeContent(
 
 @Preview
 @Composable
-private fun HomePreview() {
+private fun RoomPreview() {
     val alice = User(id = 1, username = "小明", passwordHash = "")
     val bob = User(id = 2, username = "小红", passwordHash = "")
     val messages = listOf(
@@ -354,6 +356,6 @@ private fun HomePreview() {
         Message(4, bob, "也可以发送多行文字。\n这是第二行。", bob.username),
     )
     KioChatTheme(dynamicColor = false) {
-        HomeContent(messages = messages, message = "正在输入消息…", currentUserId = alice.id)
+        RoomContent("Title", messages = messages, message = "正在输入消息…", currentUserId = alice.id)
     }
 }

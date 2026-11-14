@@ -28,7 +28,7 @@ class MainActivity : ComponentActivity() {
             while (true) {
                 val (_, error) = getKoin().get<ChatService>().checkLogin()
                 if (error == null) {
-                    initialScreen = Screen.Home
+                    initialScreen = Screen.RoomList
                     break
                 } else if (error == ApiError.AuthenticationError) {
                     initialScreen = Screen.Login

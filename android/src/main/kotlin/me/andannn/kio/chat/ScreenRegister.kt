@@ -110,7 +110,7 @@ private class RegisterLayoutPresenter(
                                     return@launch
                                 }
 
-                                navigator.clearTopAndGoToHome()
+                                navigator.clearTopAndGoToRooms()
                             }
                         }
                     }

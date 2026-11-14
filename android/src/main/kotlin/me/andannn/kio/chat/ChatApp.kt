@@ -51,7 +51,8 @@ fun ChatApp(
             entryProvider {
                 loginEntry(navigator)
                 registerEntry(navigator)
-                homeEntry(navigator)
+                roomsEntry(navigator)
+                roomEntry(navigator)
             },
     )
 }

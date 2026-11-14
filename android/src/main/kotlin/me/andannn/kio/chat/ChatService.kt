@@ -35,6 +35,7 @@ import io.ktor.http.renderSetCookieHeader
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.client.call.body
 import io.ktor.client.request.parameter
+import kio.chat.domain.Room
 import kio.chat.domain.MessagePage
 import kio.chat.domain.MessagePack
 import io.ktor.websocket.Frame
@@ -55,13 +56,14 @@ sealed interface ApiError {
 interface ChatService {
     suspend fun register(userName: String, password: String, confirmPassword: String): ApiResult<Unit>
     suspend fun login(userName: String, password: String): ApiResult<Unit>
-    suspend fun sendMessage(content: String): ApiResult<Unit>
-    suspend fun updateMessage(messageId: Long, content: String): ApiResult<Unit>
-    suspend fun deleteMessage(messageId: Long): ApiResult<Unit>
-    suspend fun getMessageHistory(beforeId: Long): ApiResult<MessagePage>
+    suspend fun sendMessage(roomId: Long, content: String): ApiResult<Unit>
+    suspend fun updateMessage(roomId: Long, messageId: Long, content: String): ApiResult<Unit>
+    suspend fun deleteMessage(roomId: Long, messageId: Long): ApiResult<Unit>
+    suspend fun getMessageHistory(roomId: Long, beforeId: Long): ApiResult<MessagePage>
     suspend fun logout(): ApiResult<Unit>
+    suspend fun getRoomList(): ApiResult<List<Room>>
     suspend fun checkLogin(): ApiResult<Unit>
-    suspend fun observeMessageEvents(onEvent: suspend (MessagePack) -> Unit): ApiError?
+    suspend fun observeMessageEvents(roomId: Long, onEvent: suspend (MessagePack) -> Unit): ApiError?
 }
 
 data class ApiResult<T>(val value: T?, val error: ApiError?)
@@ -151,28 +153,28 @@ class ChatServiceImpl : ChatService {
         }
     }
 
-    override suspend fun sendMessage(content: String): ApiResult<Unit> = tryGetResult {
+    override suspend fun sendMessage(roomId: Long, content: String): ApiResult<Unit> = tryGetResult {
         httpClient.submitForm(
-            url = "/messages",
+            url = "/rooms/$roomId/messages",
             formParameters = Parameters.build { append("content", content) },
         ) {
             contentType(ContentType.Application.FormUrlEncoded)
         }
     }
 
-    override suspend fun updateMessage(messageId: Long, content: String): ApiResult<Unit> = tryGetResult {
-        httpClient.patch("/messages/$messageId") {
+    override suspend fun updateMessage(roomId: Long, messageId: Long, content: String): ApiResult<Unit> = tryGetResult {
+        httpClient.patch("/rooms/$roomId/messages/$messageId") {
             contentType(ContentType.Application.FormUrlEncoded)
             setBody(FormDataContent(Parameters.build { append("content", content) }))
         }
     }
 
-    override suspend fun deleteMessage(messageId: Long): ApiResult<Unit> = tryGetResult {
-        httpClient.delete("/messages/$messageId")
+    override suspend fun deleteMessage(roomId: Long, messageId: Long): ApiResult<Unit> = tryGetResult {
+        httpClient.delete("/rooms/$roomId/messages/$messageId")
     }
 
-    override suspend fun getMessageHistory(beforeId: Long): ApiResult<MessagePage> = tryGetResult {
-        httpClient.get("/messages") {
+    override suspend fun getMessageHistory(roomId: Long, beforeId: Long): ApiResult<MessagePage> = tryGetResult {
+        httpClient.get("/rooms/$roomId/messages") {
             parameter("beforeId", beforeId)
         }.body<MessagePage>()
     }
@@ -181,14 +183,19 @@ class ChatServiceImpl : ChatService {
         httpClient.post("/logout")
     }
 
+    override suspend fun getRoomList(): ApiResult<List<Room>> = tryGetResult {
+        httpClient.get("/rooms").body<List<Room>>()
+    }
+
     override suspend fun checkLogin(): ApiResult<Unit> = tryGetResult {
         httpClient.get("/")
     }
 
     override suspend fun observeMessageEvents(
+        roomId: Long,
         onEvent: suspend (MessagePack) -> Unit,
     ): ApiError? = tryGetResult {
-        httpClient.webSocket(urlString = "wss://133.117.75.202:7879/messages/events?format=json") {
+        httpClient.webSocket(urlString = "wss://133.117.75.202:7879/rooms/$roomId/messages/events?format=json") {
             for (frame in incoming) {
                 if (frame is Frame.Text) {
                     onEvent(Json.decodeFromString<MessagePack>(frame.readText()))
