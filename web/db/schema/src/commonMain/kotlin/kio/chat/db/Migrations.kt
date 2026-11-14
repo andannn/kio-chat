@@ -13,6 +13,7 @@ val migrations
         migration7,
         migration8,
         migration9,
+        migration10,
     )
 
 // Test cleanup, matching kio-note. Use only with a dedicated test database.
@@ -26,6 +27,7 @@ suspend fun kio.postgres.conn.PgConnection.dropAllTables() {
     exec("DROP FUNCTION IF EXISTS notify_room_member()")
     exec("DROP FUNCTION IF EXISTS create_user_room() CASCADE")
     exec("DROP TABLE IF EXISTS rooms CASCADE")
+    exec("DROP FUNCTION IF EXISTS notify_room()")
     exec("drop table if exists sessions cascade")
     exec("drop table if exists users cascade")
 }
@@ -277,5 +279,26 @@ $$;
 CREATE TRIGGER room_members_notify
     AFTER INSERT OR DELETE ON room_members
     FOR EACH ROW EXECUTE FUNCTION notify_room_member();
+        """.trimIndent()
+)
+
+private val migration10 = Migration(
+    version = 10,
+    name = "notify room name changes",
+    sql = """
+CREATE FUNCTION notify_room() RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+BEGIN
+    PERFORM pg_notify('rooms', json_build_object(
+        'operation', TG_OP,
+        'room_id', NEW.id
+    )::TEXT);
+    RETURN NULL;
+END;
+$$;
+
+CREATE TRIGGER rooms_notify
+    AFTER UPDATE OF name ON rooms
+    FOR EACH ROW EXECUTE FUNCTION notify_room();
         """.trimIndent()
 )

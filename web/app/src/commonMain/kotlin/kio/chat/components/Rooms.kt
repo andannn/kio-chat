@@ -47,20 +47,61 @@ fun TagConsumer<*>.roomAsideMenu() {
 }
 
 fun TagConsumer<*>.roomList(rooms: List<Room>, selectedRoomId: Long?) {
-    rooms.forEach { room ->
+    rooms.forEach { room -> roomItem(room, room.id == selectedRoomId) }
+}
+
+fun TagConsumer<*>.roomItem(room: Room, selected: Boolean = false, outOfBand: Boolean = false) {
+    div(classes = "room-item") {
+        id = "room-link-${room.id}"
+        if (outOfBand) hxSwapOob = "outerHTML"
         button(type = ButtonType.button, classes = "room-link") {
-            id = "room-link-${room.id}"
             hxGet = "/rooms/${room.id}/content"
             hxTarget = "#room-content"
             hxSwap = "innerHTML"
             hxPushUrl = "/rooms/${room.id}"
-            if (room.id == selectedRoomId) attributes["aria-current"] = "page"
+            if (selected) attributes["aria-current"] = "page"
             attributes["hx-on:click"] = """
                 document.querySelectorAll('.room-link[aria-current="page"]')
                     .forEach(it => it.removeAttribute('aria-current'));
                 this.setAttribute('aria-current', 'page');
             """.trimIndent()
-            +room.name
+            span(classes = "room-name") { +room.name }
+        }
+        roomItemOptionsMenu(room.id)
+    }
+}
+
+private fun TagConsumer<*>.roomItemOptionsMenu(roomId: Long) {
+    details(classes = "menu room-item-menu") {
+        summary(classes = "menu-trigger") {
+            attributes["aria-label"] = "聊天室选项"
+            +"⋯"
+        }
+        div(classes = "menu-popup") {
+            button(type = ButtonType.button, classes = "menu-item") {
+                hxPost = "/rooms/$roomId/name-editing"
+                hxTarget = "closest .room-item"
+                hxSwap = "outerHTML"
+                +"修改名称"
+            }
+        }
+    }
+}
+
+fun TagConsumer<*>.roomNameEditor(room: Room) {
+    div(classes = "room-item room-item-editing") {
+        id = "room-link-${room.id}"
+        textInput(classes = "room-name-input") {
+            name = "name"
+            value = room.name
+            autoFocus = true
+            required = true
+            attributes["aria-label"] = "聊天室名称"
+            hxPost = "/rooms/${room.id}/name-commit"
+            hxTrigger = "keydown[key=='Enter' && !isComposing], blur changed"
+            hxTarget = "closest .room-item"
+            hxSwap = "none"
+            attributes["hx-sync"] = "this:drop"
         }
     }
 }
@@ -74,7 +115,11 @@ fun TagConsumer<*>.chatRoomContent(room: Room) {
         div(classes = "chat-conversation") {
             header(classes = "chat-header") {
                 div {
-                    h2 { +room.name }
+                    h2 {
+                        id = "room-title-${room.id}"
+                        attributes["data-room-id"] = room.id.toString()
+                        +room.name
+                    }
                     small { +"房间 ID：${room.id}" }
                 }
                 button(type = ButtonType.button, classes = "members-toggle") {
@@ -256,4 +301,8 @@ fun TagConsumer<*>.roomListDeleted(roomId: Long) {
         id = "room-link-$roomId"
         hxSwapOob = "delete"
     }
+}
+
+fun TagConsumer<*>.roomListChanged(room: Room) {
+    roomItem(room, outOfBand = true)
 }

@@ -83,6 +83,10 @@ sealed interface RoomListEvent: UserEvent {
     @Serializable
     @SerialName("room_added")
     data class Added(val room: Room): RoomListEvent
+
+    @Serializable
+    @SerialName("room_changed")
+    data class Changed(val room: Room): RoomListEvent
 }
 
 @Serializable

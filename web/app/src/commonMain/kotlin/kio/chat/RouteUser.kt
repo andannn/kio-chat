@@ -43,6 +43,7 @@ internal suspend fun WebsocketContext.handleObserveUserEvent() = coroutineScope 
                         is RoomListEvent.Initial -> roomListInitial(event.rooms, selectedRoomId)
                         is RoomListEvent.Added -> roomListAdded(event.room)
                         is RoomListEvent.Deleted -> roomListDeleted(event.roomId)
+                        is RoomListEvent.Changed -> roomListChanged(event.room)
                     }
                 }.finalize())
             }

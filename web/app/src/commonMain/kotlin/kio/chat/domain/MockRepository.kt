@@ -127,7 +127,12 @@ class MockRepositoryImpl : Repository {
         if (!isRoomOwner(roomId, userId)) return false
         val index = rooms.indexOfFirst { it.id == roomId }
         if (index < 0) return false
-        rooms[index] = rooms[index].copy(name = name)
+        val room = rooms[index].copy(name = name)
+        rooms[index] = room
+        val members = roomMembers.keys.filter { it.first == roomId }
+        for ((_, memberUserId) in members) {
+            roomListFlow.emit(memberUserId to RoomListEvent.Changed(room))
+        }
         return true
     }
 
@@ -163,6 +168,7 @@ class MockRepositoryImpl : Repository {
             when (event) {
                 is RoomListEvent.Added -> if (ids.add(event.room.id)) emit(event)
                 is RoomListEvent.Deleted -> if (ids.remove(event.roomId)) emit(event)
+                is RoomListEvent.Changed -> if (event.room.id in ids) emit(event)
                 is RoomListEvent.Initial -> Unit
             }
         }

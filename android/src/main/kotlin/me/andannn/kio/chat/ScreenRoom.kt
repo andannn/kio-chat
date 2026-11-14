@@ -22,12 +22,13 @@ import androidx.compose.ui.Modifier
 import me.andannn.kio.chat.ui.theme.KioChatTheme
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.EntryProviderScope
 import androidx.navigation3.runtime.NavKey
 import kio.chat.domain.Message
-import kio.chat.domain.Room as ChatRoom
 import kio.chat.domain.User
 import kio.chat.domain.ChatEvent
+import kio.chat.domain.Room
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -41,23 +42,25 @@ import org.koin.mp.KoinPlatform.getKoin
 import me.andannn.kio.chat.util.Presenter
 import me.andannn.kio.chat.util.RetainedPresenter
 import me.andannn.kio.chat.util.retainPresenter
+import me.andannn.kio.chat.util.stateInRetainedModel
 import me.andannn.kio.chat.widget.MessageItem
 
 private const val TAG = "ScreenRoom"
 fun EntryProviderScope<NavKey>.roomEntry(navigator: Navigator) {
     entry<Screen.RoomChat> { screen ->
-        Room(navigator, screen.room)
+        RoomUi(navigator, screen.room)
     }
 }
 
 @Composable
 private fun retainRoomState(
     navigator: Navigator,
-    room: ChatRoom,
+    room: Room,
     service: ChatService = getKoin().get(),
+    repository: UserRepository = getKoin().get(),
     snackBarController: SnackBarController = LocalSnackBarController.current,
-) = retainPresenter(navigator, room.id, service, snackBarController) {
-    RoomLayoutPresenter(navigator, room, service, snackBarController)
+) = retainPresenter(navigator, room.id, service, repository, snackBarController) {
+    RoomLayoutPresenter(navigator, room, service, repository, snackBarController)
 }
 
 sealed interface RoomUiEvent {
@@ -71,6 +74,7 @@ sealed interface RoomUiEvent {
 }
 
 private data class RoomLayoutState(
+    val room: Room,
     val messages: List<Message> = emptyList(),
     val userId: Long? = null,
     val hasMoreHistory: Boolean = false,
@@ -86,13 +90,15 @@ private sealed interface RoomEffect {
 
 private class RoomLayoutPresenter(
     val navigator: Navigator,
-    val room: ChatRoom,
+    room: Room,
     val service: ChatService,
+    repository: UserRepository,
     val snackBarController: SnackBarController,
 ) : RetainedPresenter<RoomLayoutState>() {
 
-    private val roomId get() = room.id
+    private val roomId = room.id
 
+    private val roomFlow = repository.observeRoomById(room.id).stateInRetainedModel(room)
     private val effectChannel = Channel<RoomEffect>(Channel.BUFFERED)
     private val effects = effectChannel.receiveAsFlow()
     var messages = mutableStateListOf<Message>()
@@ -195,8 +201,10 @@ private class RoomLayoutPresenter(
 
     @Composable
     override fun present(): RoomLayoutState {
+        val roomState by roomFlow.collectAsStateWithLifecycle()
         context(navigator, snackBarController) {
             return RoomLayoutState(
+                room = roomState,
                 messages = messages,
                 userId = userId,
                 hasMoreHistory = hasMoreHistory,
@@ -209,7 +217,7 @@ private class RoomLayoutPresenter(
                     is RoomUiEvent.OnUpdateMessage -> updateMessage(event.messageId, event.content)
                     is RoomUiEvent.OnDeleteMessage -> deleteMessage(event.messageId)
                     RoomUiEvent.OnLoadHistory -> loadHistory()
-                    RoomUiEvent.OnMembersClick -> navigator.navigateTo(Screen.RoomMembers(room))
+                    RoomUiEvent.OnMembersClick -> navigator.navigateTo(Screen.RoomMembers(roomState))
                     RoomUiEvent.OnBackClick -> navigator.popBackStack()
                     RoomUiEvent.OnSendClick -> sendMessage()
                 }
@@ -219,9 +227,9 @@ private class RoomLayoutPresenter(
 }
 
 @Composable
-private fun Room(
+private fun RoomUi(
     navigator: Navigator,
-    room: ChatRoom,
+    room: Room,
     modifier: Modifier = Modifier,
     presenter: Presenter<RoomLayoutState> = retainRoomState(navigator, room),
 ) {
@@ -243,8 +251,7 @@ private fun Room(
         }
     }
     RoomContent(
-        roomName = room.name,
-        roomId = room.id,
+        room = state.room,
         messages = state.messages,
         message = state.message,
         currentUserId = state.userId,
@@ -266,8 +273,7 @@ private fun Room(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RoomContent(
-    roomName: String,
-    roomId: Long,
+    room: Room,
     messages: List<Message>,
     message: String,
     modifier: Modifier = Modifier,
@@ -291,9 +297,9 @@ private fun RoomContent(
             TopAppBar(
                 title = {
                     Column {
-                        Text(roomName)
+                        Text(room.name)
                         Text(
-                            "房间 ID：$roomId",
+                            "房间 ID：${room.id}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -374,6 +380,6 @@ private fun RoomPreview() {
         Message(4, bob, "也可以发送多行文字。\n这是第二行。", bob.username),
     )
     KioChatTheme(dynamicColor = false) {
-        RoomContent("日常交流", roomId = 1, messages = messages, message = "正在输入消息…", currentUserId = alice.id)
+        RoomContent(room = Room(1, "Title"), messages = messages, message = "正在输入消息…", currentUserId = alice.id)
     }
 }

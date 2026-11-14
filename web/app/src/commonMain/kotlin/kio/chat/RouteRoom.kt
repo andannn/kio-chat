@@ -7,6 +7,7 @@ import kio.chat.domain.Repository
 import kio.chat.components.roomMemberList
 import kio.chat.components.roomList
 import kio.chat.components.chatRoomContent
+import kio.chat.components.roomNameEditor
 import kio.http.CallContext
 import kio.http.respondHtml
 import kio.http.CallInterceptor
@@ -14,6 +15,8 @@ import kio.http.Route
 import kio.http.respond
 import kio.http.route
 import kio.http.get
+import kio.http.post
+import kio.http.receiveFormParameters
 import kio.chat.page.chatMainPage
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
@@ -30,6 +33,8 @@ fun Route.roomRoute() {
                 get { call -> call.chatMainPage(requireRoomId()) }
                 get("members") { call -> call.handleGetRoomMembers() }
                 get("content") { call -> call.handleGetRoomContent() }
+                post("name-editing") { call -> call.handleEditRoomName() }
+                post("name-commit") { call -> call.handleCommitRoomName() }
                 messagesRoute()
             }
         }
@@ -94,4 +99,33 @@ private suspend fun CallContext.handleGetRoomMembers() {
         buildJson = { Json.encodeToString(members) },
         buildHtml = { roomMemberList(members) },
     )
+}
+
+context(repo: Repository)
+private suspend fun CallContext.handleEditRoomName() {
+    val roomId = requireRoomId()
+    if (!repo.isRoomOwner(roomId, requireSession().userId)) {
+        respond(HttpStatusCode.Forbidden, "只有群主可以修改聊天室名称。")
+        return
+    }
+    val room = repo.getRoomById(roomId)
+    if (room == null) {
+        respond(HttpStatusCode.NotFound, "聊天室不存在。")
+        return
+    }
+    respondHtml { roomNameEditor(room) }
+}
+
+context(repo: Repository)
+private suspend fun CallContext.handleCommitRoomName() {
+    val name = receiveFormParameters()["name"]?.trim().orEmpty()
+    if (name.isEmpty()) {
+        respond(HttpStatusCode.BadRequest, "给聊天室起个名字吧。")
+        return
+    }
+    if (!repo.updateRoomName(requireRoomId(), requireSession().userId, name)) {
+        respond(HttpStatusCode.Forbidden, "聊天室不存在，或你不是群主。")
+        return
+    }
+    respond(HttpStatusCode.OK)
 }

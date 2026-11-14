@@ -17,6 +17,7 @@ import kio.chat.database.getRoomById
 import kio.chat.database.ChatUserEntity
 import kio.chat.database.ChatMessageWithUserEntity
 import kio.chat.database.ChatMessageNotification
+import kio.chat.database.ChatRoomNotification
 import kio.chat.database.ChatRoomMemberNotification
 import kio.chat.database.ChatRoomJoinRequestNotification
 import kio.chat.database.updateRoomName
@@ -88,6 +89,7 @@ private class ServerRepositoryImpl(
             c.exec("LISTEN chat_messages")
             c.exec("LISTEN room_join_requests")
             c.exec("LISTEN room_members")
+            c.exec("LISTEN rooms")
             while (currentCoroutineContext().isActive) {
                 val notification = c.waitNotification()
                 when (notification.channel) {
@@ -111,6 +113,16 @@ private class ServerRepositoryImpl(
                             else -> continue
                         }
                         messageEventFlow.emit(MessageEvent.ChatMessageEvent(event.roomId, chatEvent))
+                    }
+
+                    "rooms" -> {
+                        val event = notificationJson.decodeFromString<ChatRoomNotification>(notification.message)
+                        if (event.operation != "UPDATE") continue
+                        val room = pgPool.useConnection { it.getRoomById(event.roomId) } ?: continue
+                        val members = pgPool.useConnection { it.getRoomMembers(event.roomId) }
+                        for ((userId) in members) {
+                            messageEventFlow.emit(MessageEvent.RoomsMessage(userId, RoomListEvent.Changed(room.toRoom())))
+                        }
                     }
 
                     "room_members" -> {
@@ -243,6 +255,7 @@ private class ServerRepositoryImpl(
                 when (event) {
                     is RoomListEvent.Added -> if (ids.add(event.room.id)) emit(event)
                     is RoomListEvent.Deleted -> if (ids.remove(event.roomId)) emit(event)
+                    is RoomListEvent.Changed -> if (event.room.id in ids) emit(event)
                     is RoomListEvent.Initial -> Unit
                 }
             }

@@ -95,3 +95,9 @@ data class ChatRoomMemberNotification(
     @SerialName("room_id") val roomId: Long,
     @SerialName("user_id") val userId: Long,
 )
+
+@Serializable
+data class ChatRoomNotification(
+    @SerialName("operation") val operation: String,
+    @SerialName("room_id") val roomId: Long,
+)

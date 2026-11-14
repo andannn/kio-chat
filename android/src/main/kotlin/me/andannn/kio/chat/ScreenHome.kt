@@ -1,17 +1,20 @@
 package me.andannn.kio.chat
 
 import android.util.Log
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.outlined.Forum
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.EntryProviderScope
 import androidx.navigation3.runtime.NavKey
 import kio.chat.domain.Room
@@ -20,6 +23,7 @@ import kio.chat.domain.RoomListEvent
 import kio.chat.domain.RoomJoinRequestEvent
 import me.andannn.kio.chat.widget.RoomJoinRequestsDialog
 import me.andannn.kio.chat.widget.JoinRoomDialog
+import me.andannn.kio.chat.widget.RoomListItem
 import kotlinx.coroutines.launch
 import me.andannn.kio.chat.ui.theme.KioChatTheme
 import me.andannn.kio.chat.util.LocalSnackBarController
@@ -28,6 +32,7 @@ import me.andannn.kio.chat.util.RetainedPresenter
 import me.andannn.kio.chat.util.SnackBarController
 import me.andannn.kio.chat.util.rememberAndSetupSnackBarHostState
 import me.andannn.kio.chat.util.retainPresenter
+import me.andannn.kio.chat.util.stateInRetainedModel
 import org.koin.mp.KoinPlatform.getKoin
 
 fun EntryProviderScope<NavKey>.homeEntry(navigator: Navigator) {
@@ -38,9 +43,10 @@ private const val TAG = "ScreenHome"
 private fun retainHomeState(
     navigator: Navigator,
     service: ChatService = getKoin().get(),
+    repository: UserRepository = getKoin().get(),
     snackBarController: SnackBarController = LocalSnackBarController.current,
-) = retainPresenter(navigator, service, snackBarController) {
-    HomeLayoutPresenter(navigator, service, snackBarController)
+) = retainPresenter(navigator, repository, service, snackBarController) {
+    HomeLayoutPresenter(navigator, repository, service, snackBarController)
 }
 
 sealed interface HomeUiEvent {
@@ -59,49 +65,20 @@ private data class HomeLayoutState(
 
 private class HomeLayoutPresenter(
     val navigator: Navigator,
+    val repository: UserRepository,
     val service: ChatService,
     val snackBarController: SnackBarController,
 ) : RetainedPresenter<HomeLayoutState>() {
-    private val rooms = mutableStateListOf<Room>()
-    private val requests = mutableStateListOf<RoomJoinRequest>()
+    private val rooms = repository.observeRooms().stateInRetainedModel(emptyList())
+    private val requests = repository.observeRoomJoinRequest().stateInRetainedModel(emptyList())
     private var submitting = false
 
     init {
         retainedScope.launch {
-            val error = service.observeUserEvents { event ->
-                Log.d(TAG, "observeUserEvents: ${event.javaClass} $event")
-                when (event) {
-                    is RoomListEvent -> handleRoomListEvent(event)
-                    is RoomJoinRequestEvent -> handleRoomJoinRequestEvent(event)
-                }
-            }
+            val error = repository.observingUserEvent()
             context(navigator, snackBarController) {
                 if (error != null) handleError(error)
             }
-        }
-    }
-
-    private fun handleRoomJoinRequestEvent(event: RoomJoinRequestEvent) {
-        when (event) {
-            is RoomJoinRequestEvent.Initial -> {
-                requests.clear()
-                requests.addAll(event.requests)
-            }
-            is RoomJoinRequestEvent.Added -> {
-                requests.add(event.request)
-            }
-            is RoomJoinRequestEvent.Removed -> requests.removeAll { it.id == event.requestId }
-        }
-    }
-
-    private fun handleRoomListEvent(event: RoomListEvent) {
-        when (event) {
-            is RoomListEvent.Initial -> {
-                rooms.clear()
-                rooms.addAll(event.rooms)
-            }
-            is RoomListEvent.Added -> rooms.add(event.room)
-            is RoomListEvent.Deleted -> rooms.removeAll { it.id == event.roomId }
         }
     }
 
@@ -147,10 +124,12 @@ private class HomeLayoutPresenter(
 
     @Composable
     override fun present(): HomeLayoutState {
+        val roomsState by rooms.collectAsStateWithLifecycle()
+        val requestsState by requests.collectAsStateWithLifecycle()
         context(navigator, snackBarController) {
             return HomeLayoutState(
-                rooms = rooms,
-                requests = requests,
+                rooms = roomsState,
+                requests = requestsState,
             ) { event ->
                 when (event) {
                     is HomeUiEvent.OnRoomClick -> navigator.navigateTo(Screen.RoomChat(event.room))
@@ -257,12 +236,42 @@ private fun HomeContent(
                 .fillMaxSize()
                 .padding(padding)
                 .consumeWindowInsets(padding),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            items(rooms, key = { it.id }) { room ->
-                ListItem(
-                    headlineContent = { Text(room.name) },
-                    modifier = Modifier.clickable { onRoomClick(room) },
-                )
+            if (rooms.isEmpty()) {
+                item {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 64.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(
+                            Icons.Outlined.Forum,
+                            contentDescription = null,
+                            modifier = Modifier.size(48.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text("还没有聊天室", style = MaterialTheme.typography.titleMedium)
+                        Text(
+                            "加入一个房间，开始聊天吧",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            } else {
+                item {
+                    Text(
+                        "我的聊天室 · ${rooms.size}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                    )
+                }
+                items(rooms, key = { it.id }) { room ->
+                    RoomListItem(room = room, onClick = { onRoomClick(room) })
+                }
             }
         }
     }
