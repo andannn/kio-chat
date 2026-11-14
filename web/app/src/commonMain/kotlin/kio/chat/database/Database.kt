@@ -89,15 +89,16 @@ suspend fun PgConnection.getUserByUsername(userName: String): ChatUserEntity? {
 
 
 // The database trigger publishes the notification when the transaction commits.
-suspend fun PgConnection.createMessage(userId: Long, text: String) {
+suspend fun PgConnection.createMessage(userId: Long, text: String, roomId: Long = 1) {
     exec(
         """
-        INSERT INTO messages(user_id, text)
-        VALUES ($1, $2)
+        INSERT INTO messages(user_id, text, room_id)
+        VALUES ($1, $2, $3)
         """.trimIndent()
     ) {
         param(userId, PostgresInt8Serializer)
         param(text, PostgresTextSerializer)
+        param(roomId, PostgresInt8Serializer)
     }
 }
 
@@ -105,6 +106,8 @@ suspend fun PgConnection.createMessage(userId: Long, text: String) {
 data class ChatMessageWithUserEntity(
     @SerialName("id")
     val id: PgInt8,
+    @SerialName("room_id")
+    val roomId: PgInt8,
     @SerialName("user_id")
     val userId: PgInt8,
     @SerialName("text")
@@ -117,26 +120,28 @@ data class ChatMessageWithUserEntity(
     val passwordHash: PgText,
 )
 
-suspend fun PgConnection.getMessageList(beforeId: Long?, limit: Int): List<ChatMessageWithUserEntity> {
+suspend fun PgConnection.getMessageList(beforeId: Long?, limit: Int, roomId: Long = 1): List<ChatMessageWithUserEntity> {
     require(limit > 0) { "limit must be positive" }
-    val whereClause = if (beforeId != null) "WHERE m.id < $beforeId" else ""
+    val whereClause = if (beforeId != null) "AND m.id < $beforeId" else ""
 
     return query<ChatMessageWithUserEntity>(
         """
-        SELECT m.id, m.user_id, m.text, m.create_at, u.username, u.password_hash
+        SELECT m.id, m.room_id, m.user_id, m.text, m.create_at, u.username, u.password_hash
         FROM messages m
         JOIN users u ON u.id = m.user_id
-        $whereClause
+        WHERE m.room_id = $1 $whereClause
         ORDER BY m.id DESC
         LIMIT $limit
         """.trimIndent()
-    ).toList()
+    ) {
+        param(roomId, PostgresInt8Serializer)
+    }.toList()
 }
 
 suspend fun PgConnection.getMessageById(messageId: Long): ChatMessageWithUserEntity? =
     query<ChatMessageWithUserEntity>(
         """
-        SELECT m.id, m.user_id, m.text, m.create_at, u.username, u.password_hash
+        SELECT m.id, m.room_id, m.user_id, m.text, m.create_at, u.username, u.password_hash
         FROM messages m
         JOIN users u ON u.id = m.user_id
         WHERE m.id = $1
@@ -145,15 +150,32 @@ suspend fun PgConnection.getMessageById(messageId: Long): ChatMessageWithUserEnt
         param(messageId, PostgresInt8Serializer)
     }.firstOrNull()
 
-suspend fun PgConnection.updateMessage(userId: Long, messageId: Long, text: String): Boolean =
-    exec("UPDATE messages SET text = $1 WHERE id = $2 AND user_id = $3") {
+suspend fun PgConnection.updateMessage(userId: Long, messageId: Long, text: String, roomId: Long = 1): Boolean =
+    exec("UPDATE messages SET text = $1 WHERE id = $2 AND user_id = $3 AND room_id = $4") {
         param(text, PostgresTextSerializer)
         param(messageId, PostgresInt8Serializer)
         param(userId, PostgresInt8Serializer)
+        param(roomId, PostgresInt8Serializer)
     } == "UPDATE 1"
 
-suspend fun PgConnection.deleteMessage(userId: Long, messageId: Long): Boolean =
-    exec("DELETE FROM messages WHERE id = $1 AND user_id = $2") {
+suspend fun PgConnection.deleteMessage(userId: Long, messageId: Long, roomId: Long = 1): Boolean =
+    exec("DELETE FROM messages WHERE id = $1 AND user_id = $2 AND room_id = $3") {
         param(messageId, PostgresInt8Serializer)
         param(userId, PostgresInt8Serializer)
+        param(roomId, PostgresInt8Serializer)
     } == "DELETE 1"
+
+suspend fun PgConnection.createRoom(name: String): ChatRoomEntity? =
+    query<ChatRoomEntity>(
+        "INSERT INTO rooms(name) VALUES ($1) RETURNING id, name, create_at"
+    ) {
+        param(name, PostgresTextSerializer)
+    }.firstOrNull()
+
+suspend fun PgConnection.getRoomList(): List<ChatRoomEntity> =
+    query<ChatRoomEntity>("SELECT id, name, create_at FROM rooms ORDER BY id").toList()
+
+suspend fun PgConnection.getRoomById(roomId: Long): ChatRoomEntity? =
+    query<ChatRoomEntity>("SELECT id, name, create_at FROM rooms WHERE id = $1") {
+        param(roomId, PostgresInt8Serializer)
+    }.firstOrNull()

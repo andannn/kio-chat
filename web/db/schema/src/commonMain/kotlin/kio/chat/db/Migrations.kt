@@ -7,6 +7,7 @@ val migrations
         migration1,
         migration2,
         migration3,
+        migration4,
     )
 
 // Test cleanup, matching kio-note. Use only with a dedicated test database.
@@ -14,6 +15,7 @@ suspend fun kio.postgres.conn.PgConnection.dropAllTables() {
     exec("drop table if exists schema_migrations cascade")
     exec("drop table if exists messages cascade")
     exec("drop function if exists notify_chat_message()")
+    exec("DROP TABLE IF EXISTS rooms CASCADE")
     exec("drop table if exists sessions cascade")
     exec("drop table if exists users cascade")
 }
@@ -80,5 +82,44 @@ $$;
 create trigger messages_notify
     after insert or update or delete on messages
     for each row execute function notify_chat_message();
+        """.trimIndent()
+)
+
+private val migration4 = Migration(
+    version = 4,
+    name = "add chat rooms",
+    sql = """
+CREATE TABLE rooms (
+    id BIGSERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    create_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO rooms (name) VALUES ('公共聊天室');
+
+ALTER TABLE messages
+    ADD COLUMN room_id BIGINT NOT NULL DEFAULT 1 REFERENCES rooms(id);
+
+CREATE INDEX messages_room_id_id_idx ON messages(room_id, id);
+
+CREATE OR REPLACE FUNCTION notify_chat_message() RETURNS TRIGGER
+LANGUAGE plpgsql AS $$
+DECLARE
+    message_row messages%ROWTYPE;
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        message_row := OLD;
+    ELSE
+        message_row := NEW;
+    END IF;
+
+    PERFORM pg_notify('chat_messages', json_build_object(
+        'operation', TG_OP,
+        'message_id', message_row.id,
+        'room_id', message_row.room_id
+    )::TEXT);
+    RETURN NULL;
+END;
+$$;
         """.trimIndent()
 )

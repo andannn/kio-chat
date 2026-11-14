@@ -133,6 +133,52 @@ abstract class DatabaseTest {
         assertEquals(emptyList(), getMessageList(beforeId = oldest.single().id, limit = 2))
     }
 
+    @Test
+    fun roomsIsolateMessagesTest() = withTestPgDatabase {
+        val defaultRoom = getRoomList().single()
+        assertEquals(1L, defaultRoom.id)
+        assertEquals("公共聊天室", defaultRoom.name)
+        val room = createRoom("第二个房间 'quoted'")!!
+        assertEquals(room, getRoomById(room.id))
+        assertNull(getRoomById(-1))
+        assertEquals(listOf(defaultRoom, room), getRoomList())
+
+        val user = createUser("room-user", "hash")!!
+        createMessage(user.id, "public")
+        createMessage(user.id, "room-first", roomId = room.id)
+        createMessage(user.id, "room-second", roomId = room.id)
+        assertEquals(listOf("public"), getMessageList(null, 50).map { it.text })
+        val latest = getMessageList(null, 1, room.id).single()
+        assertEquals(room.id, latest.roomId)
+        assertEquals("room-second", latest.text)
+        assertEquals(listOf("room-first"), getMessageList(latest.id, 50, room.id).map { it.text })
+        assertFalse(updateMessage(user.id, latest.id, "wrong-room"))
+        assertFalse(deleteMessage(user.id, latest.id))
+        assertTrue(updateMessage(user.id, latest.id, "edited", room.id))
+        assertEquals("edited", getMessageById(latest.id)?.text)
+        assertTrue(deleteMessage(user.id, latest.id, room.id))
+    }
+
+    @Test
+    fun roomNotificationsTest() = withTestPgDatabase {
+        val user = createUser("room-notify", "hash")!!
+        val room = createRoom("通知测试")!!
+        exec("LISTEN chat_messages")
+        createMessage(user.id, "hello", room.id)
+        val inserted = Json.decodeFromString<ChatMessageNotification>(waitNotification().message)
+        assertEquals(room.id, inserted.roomId)
+        assertEquals("INSERT", inserted.operation)
+        assertTrue(updateMessage(user.id, inserted.messageId, "edited", room.id))
+        val updated = Json.decodeFromString<ChatMessageNotification>(waitNotification().message)
+        assertEquals(room.id, updated.roomId)
+        assertEquals("UPDATE", updated.operation)
+        assertTrue(deleteMessage(user.id, inserted.messageId, room.id))
+        val deleted = Json.decodeFromString<ChatMessageNotification>(waitNotification().message)
+        assertEquals(room.id, deleted.roomId)
+        assertEquals(inserted.messageId, deleted.messageId)
+        assertEquals("DELETE", deleted.operation)
+    }
+
     fun withTestPgDatabase(
         block: suspend PgConnection.() -> Unit
     ) =

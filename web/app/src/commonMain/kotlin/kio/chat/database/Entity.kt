@@ -28,7 +28,6 @@ data class ChatSessionEntity(
     val createAt: PgTimestampTz,
 )
 
-
 @Serializable
 data class ChatMessageEntity(
     @SerialName("id")
@@ -39,11 +38,20 @@ data class ChatMessageEntity(
     val text: PgText,
     @SerialName("create_at")
     val createAt: PgTimestampTz,
+    @SerialName("room_id")
+    val roomId: PgInt8,
 )
-
 
 @Serializable
 data class ChatMessageNotification(
-    val operation: String,
+    @SerialName("operation") val operation: String,
     @SerialName("message_id") val messageId: Long,
+    @SerialName("room_id") val roomId: Long,
+)
+
+@Serializable
+data class ChatRoomEntity(
+    @SerialName("id") val id: PgInt8,
+    @SerialName("name") val name: PgText,
+    @SerialName("create_at") val createAt: PgTimestampTz,
 )

@@ -14,14 +14,18 @@ class MockRepositoryImpl : Repository {
     private val sessions = mutableMapOf<String, Session>()
     private var nextUserId = 1L
 
+    private val rooms = mutableListOf(Room(1, "公共聊天室"))
+    private var nextRoomId = 2L
+    private val messageRooms = mutableMapOf<Long, Long>()
     private val messages = mutableListOf<Message>()
-    private val messageFlow = MutableSharedFlow<MessageEvent>()
+    private val messageFlow = MutableSharedFlow<Pair<Long, MessageEvent>>()
     private var nextMessageId = 1L
 
     init {
         val user = User(nextUserId++, "demo", "demo")
         users[user.username] = user
         repeat(125) {
+            messageRooms[nextMessageId] = 1
             messages.add(Message(nextMessageId++, user, "Mock message ${it + 1}", user.username))
         }
     }
@@ -53,46 +57,57 @@ class MockRepositoryImpl : Repository {
         return  sessions[sessionId]
     }
 
-    override fun observeMessageEvent(): Flow<MessageEvent> {
+    override suspend fun createRoom(name: String): Room =
+        Room(nextRoomId++, name).also { rooms.add(it) }
+
+    override suspend fun getRoomList(): List<Room> = rooms.toList()
+
+    override suspend fun getRoomById(roomId: Long): Room? = rooms.find { it.id == roomId }
+
+    override fun observeMessageEvent(roomId: Long): Flow<MessageEvent> {
         return flow {
             val ids = mutableSetOf<Long>()
             messageFlow.onSubscription {
-                val initial = getMessageList()
+                val initial = getMessageList(roomId = roomId)
                 ids.addAll(initial.map { it.id })
                 this@flow.emit(MessageEvent.Initial(initial))
-            }.collect { event ->
+            }.collect { (eventRoomId, event) ->
+                if (eventRoomId != roomId) return@collect
                 if (event !is MessageEvent.Added || ids.add(event.message.id)) emit(event)
             }
         }
     }
 
-    override suspend fun recordMessage(userId: Long, msg: String) {
+    override suspend fun recordMessage(userId: Long, msg: String, roomId: Long) {
+        requireNotNull(getRoomById(roomId)) { "Unknown room" }
         val user = requireNotNull(users.values.find { it.id == userId }) { "Unknown user" }
         val message = Message(nextMessageId++, user, msg, user.username)
+        messageRooms[message.id] = roomId
         messages.add(message)
-        messageFlow.emit(MessageEvent.Added(message))
+        messageFlow.emit(roomId to MessageEvent.Added(message))
     }
-    override suspend fun getOwnMessage(userId: Long, messageId: Long): Message? =
-        messages.find { it.id == messageId && it.user.id == userId }
+    override suspend fun getOwnMessage(userId: Long, messageId: Long, roomId: Long): Message? =
+        messages.find { it.id == messageId && it.user.id == userId && messageRooms[it.id] == roomId }
 
-    override suspend fun updateMessage(userId: Long, messageId: Long, text: String): Boolean {
-        val index = messages.indexOfFirst { it.id == messageId && it.user.id == userId }
+    override suspend fun updateMessage(userId: Long, messageId: Long, text: String, roomId: Long): Boolean {
+        val index = messages.indexOfFirst { it.id == messageId && it.user.id == userId && messageRooms[it.id] == roomId }
         if (index < 0) return false
         val message = messages[index].copy(text = text)
         messages[index] = message
-        messageFlow.emit(MessageEvent.Changed(message))
+        messageFlow.emit(roomId to MessageEvent.Changed(message))
         return true
     }
 
-    override suspend fun deleteMessage(userId: Long, messageId: Long): Boolean {
-        val message = getOwnMessage(userId, messageId) ?: return false
+    override suspend fun deleteMessage(userId: Long, messageId: Long, roomId: Long): Boolean {
+        val message = getOwnMessage(userId, messageId, roomId) ?: return false
         messages.remove(message)
-        messageFlow.emit(MessageEvent.Deleted(messageId))
+        messageRooms.remove(messageId)
+        messageFlow.emit(roomId to MessageEvent.Deleted(messageId))
         return true
     }
 
-    override suspend fun getMessageList(beforeId: Long?, limit: Int): List<Message> {
+    override suspend fun getMessageList(beforeId: Long?, limit: Int, roomId: Long): List<Message> {
         require(limit > 0) { "limit must be positive" }
-        return messages.filter { beforeId == null || it.id < beforeId }.takeLast(limit)
+        return messages.filter { messageRooms[it.id] == roomId && (beforeId == null || it.id < beforeId) }.takeLast(limit)
     }
 }

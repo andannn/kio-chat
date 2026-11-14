@@ -31,7 +31,7 @@ suspend fun CoroutineScope.chatApp(serverSocket: ServerSocket) {
 
                 inject(AuthSession()) {
                     get("/") { call -> call.chatMainPage() }
-                    messagesRoute()
+                    roomRoute()
                 }
 
                 staticResource(

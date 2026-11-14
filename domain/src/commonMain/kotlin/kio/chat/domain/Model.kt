@@ -53,3 +53,10 @@ data class MessagePage(
     @SerialName("messages") val messages: List<Message>,
     @SerialName("hasMore") val hasMore: Boolean,
 )
+
+@Serializable
+@SerialName("room")
+data class Room(
+    @SerialName("id") val id: Long,
+    @SerialName("name") val name: String,
+)

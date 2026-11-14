@@ -4,27 +4,27 @@ import kio.chat.domain.Message
 import kio.chat.util.*
 import kotlinx.html.*
 
-fun TagConsumer<*>.messageList(messages: List<Message>, currentUserId: Long) {
+fun TagConsumer<*>.messageList(messages: List<Message>, currentUserId: Long, roomId: Long) {
     div {
         id = "messages"
         hxSwapOob = "innerHTML"
 
-        messageHistoryControl(messages.firstOrNull()?.id, messages.size == 50)
+        messageHistoryControl(messages.firstOrNull()?.id, messages.size == 50, roomId)
         messages.forEach { message ->
-            article { messageItem(message, message.user.id == currentUserId) }
+            article { messageItem(message, message.user.id == currentUserId, roomId) }
         }
     }
 }
 
-fun TagConsumer<*>.messageAppend(message: Message, isMine: Boolean) {
+fun TagConsumer<*>.messageAppend(message: Message, isMine: Boolean, roomId: Long) {
     div {
         id = "messages"
         hxSwapOob = "beforeend"
-        article { messageItem(message, isMine) }
+        article { messageItem(message, isMine, roomId) }
     }
 }
 
-private fun ARTICLE.messageItem(message: Message, isMine: Boolean) {
+private fun ARTICLE.messageItem(message: Message, isMine: Boolean, roomId: Long) {
     id = "message-${message.id}"
     attributes["data-mine"] = isMine.toString()
     p {
@@ -39,13 +39,13 @@ private fun ARTICLE.messageItem(message: Message, isMine: Boolean) {
             }
             div(classes = "menu-popup") {
                 button(type = ButtonType.button, classes = "menu-item") {
-                    hxGet = "/messages/${message.id}/editor"
+                    hxGet = "/rooms/$roomId/messages/${message.id}/editor"
                     hxTarget = "closest article"
                     hxSwap = "outerHTML"
                     +"编辑"
                 }
                 button(type = ButtonType.button, classes = "menu-item") {
-                    hxDelete = "/messages/${message.id}"
+                    hxDelete = "/rooms/$roomId/messages/${message.id}"
                     hxSwap = "none"
                     hxConfirm = "确定删除这条消息吗？"
                     +"删除"
@@ -55,14 +55,14 @@ private fun ARTICLE.messageItem(message: Message, isMine: Boolean) {
     }
 }
 
-fun TagConsumer<*>.messageView(message: Message, isMine: Boolean) {
-    article { messageItem(message, isMine) }
+fun TagConsumer<*>.messageView(message: Message, isMine: Boolean, roomId: Long) {
+    article { messageItem(message, isMine, roomId) }
 }
 
-fun TagConsumer<*>.messageChanged(message: Message, isMine: Boolean) {
+fun TagConsumer<*>.messageChanged(message: Message, isMine: Boolean, roomId: Long) {
     article {
         hxSwapOob = "outerHTML"
-        messageItem(message, isMine)
+        messageItem(message, isMine, roomId)
     }
 }
 
@@ -73,12 +73,12 @@ fun TagConsumer<*>.messageDeleted(messageId: Long) {
     }
 }
 
-fun TagConsumer<*>.messageEditor(message: Message) {
+fun TagConsumer<*>.messageEditor(message: Message, roomId: Long) {
     article(classes = "message-editing") {
         id = "message-${message.id}"
         attributes["data-mine"] = "true"
         form(classes = "message-edit-form") {
-            hxPatch = "/messages/${message.id}"
+            hxPatch = "/rooms/$roomId/messages/${message.id}"
             hxSwap = "none"
             attributes["hx-disabled-elt"] = "find button"
             textArea {
@@ -92,7 +92,7 @@ fun TagConsumer<*>.messageEditor(message: Message) {
             }
             div(classes = "message-edit-actions") {
                 button(type = ButtonType.button) {
-                    hxGet = "/messages/${message.id}"
+                    hxGet = "/rooms/$roomId/messages/${message.id}"
                     hxTarget = "closest article"
                     hxSwap = "outerHTML"
                     +"取消"
@@ -103,19 +103,19 @@ fun TagConsumer<*>.messageEditor(message: Message) {
     }
 }
 
-fun TagConsumer<*>.messageHistory(messages: List<Message>, currentUserId: Long, hasMore: Boolean) {
-    messageHistoryControl(messages.firstOrNull()?.id, hasMore)
+fun TagConsumer<*>.messageHistory(messages: List<Message>, currentUserId: Long, hasMore: Boolean, roomId: Long) {
+    messageHistoryControl(messages.firstOrNull()?.id, hasMore, roomId)
     messages.forEach { message ->
-        article { messageItem(message, message.user.id == currentUserId) }
+        article { messageItem(message, message.user.id == currentUserId, roomId) }
     }
 }
 
-private fun TagConsumer<*>.messageHistoryControl(beforeId: Long?, hasMore: Boolean) {
+private fun TagConsumer<*>.messageHistoryControl(beforeId: Long?, hasMore: Boolean, roomId: Long) {
     div {
         id = "message-history"
         if (hasMore && beforeId != null) {
             button(type = ButtonType.button) {
-                hxGet = "/messages?beforeId=$beforeId"
+                hxGet = "/rooms/$roomId/messages?beforeId=$beforeId"
                 hxTarget = "#message-history"
                 hxSwap = "outerHTML"
                 attributes["hx-disabled-elt"] = "this"

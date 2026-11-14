@@ -33,20 +33,21 @@ private suspend fun WebsocketContext.handleObserveEvent() {
     val format = call.requestParameters["format"]
     val isJson = format == "json"
     val userId = requireSession().userId
-    repo.observeMessageEvent().collect { event ->
+    val roomId = requireRoomId()
+    repo.observeMessageEvent(roomId).collect { event ->
         if (isJson) {
             sendText(Json.encodeToString(MessagePack(userId, event)))
         } else {
             sendText(createHTML().apply {
                 when (event) {
                     is MessageEvent.Initial -> {
-                        messageList(event.message, userId)
+                        messageList(event.message, userId, roomId)
                     }
                     is MessageEvent.Added -> {
-                        messageAppend(event.message, userId == event.message.user.id)
+                        messageAppend(event.message, userId == event.message.user.id, roomId)
                     }
                     is MessageEvent.Changed -> {
-                        messageChanged(event.message, userId == event.message.user.id)
+                        messageChanged(event.message, userId == event.message.user.id, roomId)
                     }
                     is MessageEvent.Deleted -> {
                         messageDeleted(event.messageId)
@@ -65,12 +66,13 @@ private suspend fun CallContext.handleGetMessageHistory() {
         respond(HttpStatusCode.BadRequest, "无效的消息编号。")
         return
     }
-    val messages = repo.getMessageList(beforeId, limit = 51)
+    val roomId = requireRoomId()
+    val messages = repo.getMessageList(beforeId, limit = 51, roomId)
     val page = MessagePage(messages.takeLast(50), hasMore = messages.size > 50)
     respondByContentType(
         status = HttpStatusCode.OK,
         buildJson = { Json.encodeToString(page) },
-        buildHtml = { messageHistory(page.messages, userId, page.hasMore) },
+        buildHtml = { messageHistory(page.messages, userId, page.hasMore, roomId) },
     )
 }
 
@@ -81,7 +83,8 @@ private suspend fun CallContext.handleNewMessage() {
         respond(HttpStatusCode.BadRequest, "消息内容须为 1–2000 个字符。")
         return
     }
-    repo.recordMessage(requireSession().userId, content)
+    val roomId = requireRoomId()
+    repo.recordMessage(requireSession().userId, content, roomId)
 
     respond(HttpStatusCode.OK)
 }
@@ -95,26 +98,28 @@ private suspend fun CallContext.messageIdOrRespond(): Long? {
 context(repo: Repository)
 private suspend fun CallContext.handleGetMessage() {
     val id = messageIdOrRespond() ?: return
-    val message = repo.getOwnMessage(requireSession().userId, id)
+    val roomId = requireRoomId()
+    val message = repo.getOwnMessage(requireSession().userId, id, roomId)
     if (message == null) {
         respond(HttpStatusCode.NotFound)
         return
     }
     respondHtml {
-        messageView(message, isMine = true)
+        messageView(message, isMine = true, roomId = roomId)
     }
 }
 
 context(repo: Repository)
 private suspend fun CallContext.handleGetEditingMessage() {
     val id = messageIdOrRespond() ?: return
-    val message = repo.getOwnMessage(requireSession().userId, id)
+    val roomId = requireRoomId()
+    val message = repo.getOwnMessage(requireSession().userId, id, roomId)
     if (message == null) {
         respond(HttpStatusCode.NotFound)
         return
     }
     respondHtml {
-        messageEditor(message)
+        messageEditor(message, roomId)
     }
 }
 
@@ -126,7 +131,8 @@ private suspend fun CallContext.handleUpdateMessage() {
         respond(HttpStatusCode.BadRequest, "消息内容须为 1–2000 个字符。")
         return
     }
-    if (!repo.updateMessage(requireSession().userId, id, content)) {
+    val roomId = requireRoomId()
+    if (!repo.updateMessage(requireSession().userId, id, content, roomId)) {
         respond(HttpStatusCode.NotFound)
         return
     }
@@ -136,7 +142,8 @@ private suspend fun CallContext.handleUpdateMessage() {
 context(repo: Repository)
 private suspend fun CallContext.handleDeleteMessage() {
     val id = messageIdOrRespond() ?: return
-    if (!repo.deleteMessage(requireSession().userId, id)) {
+    val roomId = requireRoomId()
+    if (!repo.deleteMessage(requireSession().userId, id, roomId)) {
         respond(HttpStatusCode.NotFound)
         return
     }
