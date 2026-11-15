@@ -5,6 +5,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.launch
@@ -17,14 +18,13 @@ class MockRepositoryImpl : Repository {
 
     private val rooms = mutableListOf(Room(1, "demo的房间"))
     private val roomMembers = mutableMapOf((1L to 1L) to RoomRole.Owner)
-    private val roomListFlow = MutableSharedFlow<Pair<Long, RoomListEvent>>(extraBufferCapacity = 64)
+    private val messageEventFlow = MutableSharedFlow<MockMessageEvent>(extraBufferCapacity = 64)
     private val joinRequests = mutableListOf<RoomJoinRequest>()
     private val joinRequestFlow = MutableSharedFlow<Pair<Long, RoomJoinRequestEvent>>(extraBufferCapacity = 64)
     private var nextJoinRequestId = 1L
     private var nextRoomId = 2L
     private val messageRooms = mutableMapOf<Long, Long>()
     private val messages = mutableListOf<Message>()
-    private val messageFlow = MutableSharedFlow<Pair<Long, ChatEvent>>()
     private var nextMessageId = 1L
 
     init {
@@ -94,7 +94,7 @@ class MockRepositoryImpl : Repository {
         val request = joinRequests.find { it.id == requestId } ?: return false
         if (!isRoomOwner(request.roomId, ownerId)) return false
         roomMembers.getOrPut(request.roomId to request.userId) { RoomRole.Member }
-        roomListFlow.emit(request.userId to RoomListEvent.Added(requireNotNull(getRoomById(request.roomId))))
+        messageEventFlow.emit(MockMessageEvent.RoomsMessage(request.userId, RoomListEvent.Added(requireNotNull(getRoomById(request.roomId)))))
         joinRequests.remove(request)
         emitJoinRequestEvent(request.roomId, RoomJoinRequestEvent.Removed(request.id))
         return true
@@ -123,6 +123,21 @@ class MockRepositoryImpl : Repository {
 
     override suspend fun getRoomById(roomId: Long): Room? = rooms.find { it.id == roomId }
 
+    override suspend fun deleteRoom(roomId: Long, userId: Long): Boolean {
+        if (!isRoomOwner(roomId, userId)) return false
+        val members = roomMembers.keys.filter { it.first == roomId }
+        val messageIds = messageRooms.filterValues { it == roomId }.keys.toSet()
+        rooms.removeAll { it.id == roomId }
+        members.forEach { roomMembers.remove(it) }
+        messages.removeAll { it.id in messageIds }
+        messageIds.forEach { messageRooms.remove(it) }
+        joinRequests.removeAll { it.roomId == roomId }
+        for ((_, memberUserId) in members) {
+            messageEventFlow.emit(MockMessageEvent.RoomsMessage(memberUserId, RoomListEvent.Deleted(roomId)))
+        }
+        return true
+    }
+
     override suspend fun updateRoomName(roomId: Long, userId: Long, name: String): Boolean {
         if (!isRoomOwner(roomId, userId)) return false
         val index = rooms.indexOfFirst { it.id == roomId }
@@ -131,7 +146,7 @@ class MockRepositoryImpl : Repository {
         rooms[index] = room
         val members = roomMembers.keys.filter { it.first == roomId }
         for ((_, memberUserId) in members) {
-            roomListFlow.emit(memberUserId to RoomListEvent.Changed(room))
+            messageEventFlow.emit(MockMessageEvent.RoomsMessage(memberUserId, RoomListEvent.Changed(room)))
         }
         return true
     }
@@ -157,33 +172,32 @@ class MockRepositoryImpl : Repository {
         }
     }
 
-    override fun observeRoomListEvent(userId: Long): Flow<RoomListEvent> = flow {
-        val ids = mutableSetOf<Long>()
-        roomListFlow.onSubscription {
+    override fun observeRoomAndChatMessageEventByUser(userId: Long): Flow<UserEvent> = flow {
+        val roomIds = mutableSetOf<Long>()
+        messageEventFlow.onSubscription {
             val rooms = getRoomList(userId)
-            ids.addAll(rooms.map { it.id })
+            roomIds.addAll(rooms.map { it.id })
             this@flow.emit(RoomListEvent.Initial(rooms))
-        }.collect { (eventUserId, event) ->
-            if (eventUserId != userId) return@collect
-            when (event) {
-                is RoomListEvent.Added -> if (ids.add(event.room.id)) emit(event)
-                is RoomListEvent.Deleted -> if (ids.remove(event.roomId)) emit(event)
-                is RoomListEvent.Changed -> if (event.room.id in ids) emit(event)
-                is RoomListEvent.Initial -> Unit
+            for (roomId in roomIds) {
+                this@flow.emit(UserChatEvent.Initial(roomId, getMessageList(limit = 1, roomId = roomId)))
             }
-        }
-    }
-
-    override fun observeChatMessageEvent(roomId: Long): Flow<ChatEvent> {
-        return flow {
-            val ids = mutableSetOf<Long>()
-            messageFlow.onSubscription {
-                val initial = getMessageList(roomId = roomId)
-                ids.addAll(initial.map { it.id })
-                this@flow.emit(ChatEvent.Initial(initial))
-            }.collect { (eventRoomId, event) ->
-                if (eventRoomId != roomId) return@collect
-                if (event !is ChatEvent.Added || ids.add(event.message.id)) emit(event)
+        }.collect { message ->
+            when (message) {
+                is MockMessageEvent.RoomsMessage -> {
+                    if (message.userId != userId) return@collect
+                    when (val event = message.event) {
+                        is RoomListEvent.Added -> if (roomIds.add(event.room.id)) {
+                            emit(event)
+                            emit(UserChatEvent.Initial(event.room.id, getMessageList(limit = 1, roomId = event.room.id)))
+                        }
+                        is RoomListEvent.Deleted -> if (roomIds.remove(event.roomId)) emit(event)
+                        is RoomListEvent.Changed -> if (event.room.id in roomIds) emit(event)
+                        is RoomListEvent.Initial -> Unit
+                    }
+                }
+                is MockMessageEvent.ChatMessageEvent -> {
+                    if (message.event.roomId in roomIds) emit(message.event)
+                }
             }
         }
     }
@@ -194,7 +208,7 @@ class MockRepositoryImpl : Repository {
         val message = Message(nextMessageId++, user, msg, user.username)
         messageRooms[message.id] = roomId
         messages.add(message)
-        messageFlow.emit(roomId to ChatEvent.Added(message))
+        messageEventFlow.emit(MockMessageEvent.ChatMessageEvent(UserChatEvent.Added(roomId, message)))
     }
     override suspend fun getOwnMessage(userId: Long, messageId: Long, roomId: Long): Message? =
         messages.find { it.id == messageId && it.user.id == userId && messageRooms[it.id] == roomId }
@@ -204,7 +218,7 @@ class MockRepositoryImpl : Repository {
         if (index < 0) return false
         val message = messages[index].copy(text = text)
         messages[index] = message
-        messageFlow.emit(roomId to ChatEvent.Changed(message))
+        messageEventFlow.emit(MockMessageEvent.ChatMessageEvent(UserChatEvent.Changed(roomId, message)))
         return true
     }
 
@@ -212,7 +226,7 @@ class MockRepositoryImpl : Repository {
         val message = getOwnMessage(userId, messageId, roomId) ?: return false
         messages.remove(message)
         messageRooms.remove(messageId)
-        messageFlow.emit(roomId to ChatEvent.Deleted(messageId))
+        messageEventFlow.emit(MockMessageEvent.ChatMessageEvent(UserChatEvent.Deleted(roomId, messageId)))
         return true
     }
 
@@ -220,4 +234,9 @@ class MockRepositoryImpl : Repository {
         require(limit > 0) { "limit must be positive" }
         return messages.filter { messageRooms[it.id] == roomId && (beforeId == null || it.id < beforeId) }.takeLast(limit)
     }
+}
+
+private sealed interface MockMessageEvent {
+    data class RoomsMessage(val userId: Long, val event: RoomListEvent) : MockMessageEvent
+    data class ChatMessageEvent(val event: UserChatEvent) : MockMessageEvent
 }

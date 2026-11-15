@@ -196,6 +196,25 @@ suspend fun PgConnection.updateRoomName(roomId: Long, userId: Long, name: String
         param(userId, PostgresInt8Serializer)
     } == "UPDATE 1"
 
+suspend fun PgConnection.deleteRoom(roomId: Long, userId: Long): Boolean = transaction { tx ->
+    tx.query<ChatRoomEntity>(
+        """
+        SELECT r.id, r.name, r.create_at
+        FROM rooms r
+        JOIN room_members rm ON rm.room_id = r.id
+        WHERE r.id = $1 AND rm.user_id = $2 AND rm.role = 'owner'
+        FOR UPDATE OF r, rm
+        """.trimIndent()
+    ) {
+        param(roomId, PostgresInt8Serializer)
+        param(userId, PostgresInt8Serializer)
+    }.firstOrNull() ?: return@transaction false
+
+    tx.exec("DELETE FROM rooms WHERE id = $1") {
+        param(roomId, PostgresInt8Serializer)
+    } == "DELETE 1"
+}
+
 suspend fun PgConnection.addRoomMember(roomId: Long, userId: Long) {
     exec("INSERT INTO room_members(room_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING") {
         param(roomId, PostgresInt8Serializer)

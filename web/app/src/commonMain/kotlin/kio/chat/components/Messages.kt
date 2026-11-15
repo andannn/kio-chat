@@ -1,32 +1,14 @@
 package kio.chat.components
 
 import kio.chat.domain.Message
+import kio.chat.domain.UserChatEvent
 import kio.chat.util.*
 import kotlinx.html.*
-
-fun TagConsumer<*>.messageList(messages: List<Message>, currentUserId: Long, roomId: Long) {
-    div {
-        id = "messages"
-        hxSwapOob = "innerHTML"
-
-        messageHistoryControl(messages.firstOrNull()?.id, messages.size == 50, roomId)
-        messages.forEach { message ->
-            article { messageItem(message, message.user.id == currentUserId, roomId) }
-        }
-    }
-}
-
-fun TagConsumer<*>.messageAppend(message: Message, isMine: Boolean, roomId: Long) {
-    div {
-        id = "messages"
-        hxSwapOob = "beforeend"
-        article { messageItem(message, isMine, roomId) }
-    }
-}
 
 private fun ARTICLE.messageItem(message: Message, isMine: Boolean, roomId: Long) {
     id = "message-${message.id}"
     attributes["data-mine"] = isMine.toString()
+    attributes["data-chat-room-id"] = roomId.toString()
     p {
         strong { +"${message.username}: " }
         +message.text
@@ -57,20 +39,6 @@ private fun ARTICLE.messageItem(message: Message, isMine: Boolean, roomId: Long)
 
 fun TagConsumer<*>.messageView(message: Message, isMine: Boolean, roomId: Long) {
     article { messageItem(message, isMine, roomId) }
-}
-
-fun TagConsumer<*>.messageChanged(message: Message, isMine: Boolean, roomId: Long) {
-    article {
-        hxSwapOob = "outerHTML"
-        messageItem(message, isMine, roomId)
-    }
-}
-
-fun TagConsumer<*>.messageDeleted(messageId: Long) {
-    div {
-        id = "message-$messageId"
-        hxSwapOob = "delete"
-    }
 }
 
 fun TagConsumer<*>.messageEditor(message: Message, roomId: Long) {
@@ -121,6 +89,33 @@ private fun TagConsumer<*>.messageHistoryControl(beforeId: Long?, hasMore: Boole
                 attributes["hx-disabled-elt"] = "this"
                 +"加载更早的消息"
             }
+        }
+    }
+}
+
+fun TagConsumer<*>.chatMessageEvent(event: UserChatEvent, userId: Long) {
+    when (event) {
+        is UserChatEvent.Initial -> roomMessagePreview(
+            event.roomId, event.message.maxByOrNull { it.id }, outOfBand = true,
+        )
+        is UserChatEvent.Added -> {
+            roomMessagePreview(event.roomId, event.message, outOfBand = true)
+            div {
+                id = "messages"
+                hxSwapOob = "beforeend"
+                messageView(event.message, event.message.user.id == userId, event.roomId)
+            }
+        }
+        is UserChatEvent.Changed -> {
+            roomMessagePreview(event.roomId, event.message, outOfBand = true, changed = true)
+            article {
+                hxSwapOob = "outerHTML"
+                messageItem(event.message, event.message.user.id == userId, event.roomId)
+            }
+        }
+        is UserChatEvent.Deleted -> div {
+            id = "message-${event.messageId}"
+            hxSwapOob = "delete"
         }
     }
 }

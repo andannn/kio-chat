@@ -36,9 +36,8 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.client.call.body
 import io.ktor.client.request.parameter
 import kio.chat.domain.UserEvent
-import kio.chat.domain.RoomMember
+import kio.chat.domain.RoomMembersPage
 import kio.chat.domain.MessagePage
-import kio.chat.domain.MessagePack
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -62,13 +61,14 @@ interface ChatService {
     suspend fun deleteMessage(roomId: Long, messageId: Long): ApiResult<Unit>
     suspend fun getMessageHistory(roomId: Long, beforeId: Long): ApiResult<MessagePage>
     suspend fun logout(): ApiResult<Unit>
-    suspend fun getRoomMembers(roomId: Long): ApiResult<List<RoomMember>>
+    suspend fun disbandRoom(roomId: Long): ApiResult<Unit>
+    suspend fun renameRoom(roomId: Long, name: String): ApiResult<Unit>
+    suspend fun getRoomMembers(roomId: Long): ApiResult<RoomMembersPage>
     suspend fun createRoomJoinRequest(roomId: Long): ApiResult<Unit>
     suspend fun approveRoomJoinRequest(requestId: Long): ApiResult<Unit>
     suspend fun rejectRoomJoinRequest(requestId: Long): ApiResult<Unit>
     suspend fun observeUserEvents(onEvent: suspend (UserEvent) -> Unit): ApiError?
     suspend fun checkLogin(): ApiResult<Unit>
-    suspend fun observeMessageEvents(roomId: Long, onEvent: suspend (MessagePack) -> Unit): ApiError?
 }
 
 data class ApiResult<T>(val value: T?, val error: ApiError?)
@@ -188,8 +188,21 @@ class ChatServiceImpl : ChatService {
         httpClient.post("/logout")
     }
 
-    override suspend fun getRoomMembers(roomId: Long): ApiResult<List<RoomMember>> = tryGetResult {
-        httpClient.get("/rooms/$roomId/members").body<List<RoomMember>>()
+    override suspend fun disbandRoom(roomId: Long): ApiResult<Unit> = tryGetResult {
+        httpClient.delete("/rooms/$roomId")
+    }
+
+    override suspend fun renameRoom(roomId: Long, name: String): ApiResult<Unit> = tryGetResult {
+        httpClient.submitForm(
+            url = "/rooms/$roomId/name-commit",
+            formParameters = Parameters.build { append("name", name) },
+        ) {
+            contentType(ContentType.Application.FormUrlEncoded)
+        }
+    }
+
+    override suspend fun getRoomMembers(roomId: Long): ApiResult<RoomMembersPage> = tryGetResult {
+        httpClient.get("/rooms/$roomId/members").body<RoomMembersPage>()
     }
 
     override suspend fun createRoomJoinRequest(roomId: Long): ApiResult<Unit> = tryGetResult {
@@ -225,18 +238,7 @@ class ChatServiceImpl : ChatService {
         httpClient.get("/")
     }
 
-    override suspend fun observeMessageEvents(
-        roomId: Long,
-        onEvent: suspend (MessagePack) -> Unit,
-    ): ApiError? = tryGetResult {
-        httpClient.webSocket(urlString = "wss://133.117.75.202:7879/rooms/$roomId/messages/events?format=json") {
-            for (frame in incoming) {
-                if (frame is Frame.Text) {
-                    onEvent(Json.decodeFromString<MessagePack>(frame.readText()))
-                }
-            }
-        }
-    }.error
+
 }
 
 private suspend inline fun <reified T> tryGetResult(block: () -> T): ApiResult<T> =

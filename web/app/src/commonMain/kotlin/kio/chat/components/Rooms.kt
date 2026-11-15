@@ -1,5 +1,6 @@
 package kio.chat.components
 
+import kio.chat.domain.Message
 import kio.chat.domain.RoomJoinRequest
 import kio.chat.domain.RoomRole
 import kio.chat.domain.RoomMember
@@ -66,6 +67,7 @@ fun TagConsumer<*>.roomItem(room: Room, selected: Boolean = false, outOfBand: Bo
                 this.setAttribute('aria-current', 'page');
             """.trimIndent()
             span(classes = "room-name") { +room.name }
+            roomMessagePreview(room.id, null)
         }
         roomItemOptionsMenu(room.id)
     }
@@ -103,15 +105,16 @@ fun TagConsumer<*>.roomNameEditor(room: Room) {
             hxSwap = "none"
             attributes["hx-sync"] = "this:drop"
         }
+        roomMessagePreview(room.id, null)
     }
 }
 
-fun TagConsumer<*>.chatRoomContent(room: Room) {
+fun TagConsumer<*>.chatRoomContent(room: Room, isOwner: Boolean = false) {
     val messagePath = "/rooms/${room.id}/messages"
     div(classes = "chat-room") {
-        attributes["hx-ext"] = "ws"
-        attributes["ws-connect"] = "$messagePath/events"
-        attributes["hx-on:htmx:ws-after-message"] = "scrollMessageList(this)"
+        attributes["data-room-id"] = room.id.toString()
+        attributes["hx-on:htmx:oob-after-swap"] =
+            "if (event.detail.shouldSwap && event.detail.target.id === 'messages') scrollMessageList(this)"
         div(classes = "chat-conversation") {
             header(classes = "chat-header") {
                 div {
@@ -131,6 +134,11 @@ fun TagConsumer<*>.chatRoomContent(room: Room) {
             }
             section(classes = "chat-messages") {
                 id = "messages"
+                hxGet = "$messagePath?beforeId=${Long.MAX_VALUE}"
+                hxTrigger = "load"
+                hxSwap = "innerHTML"
+                attributes["hx-on:htmx:after-swap"] =
+                    "if (event.detail.target === this) scrollMessageList(this.closest('.chat-room'))"
             }
             form(classes = "chat-composer") {
                 id = "message-form"
@@ -170,6 +178,22 @@ fun TagConsumer<*>.chatRoomContent(room: Room) {
             }
             div(classes = "members-content") {
                 id = "room-members-list"
+            }
+            if (isOwner) {
+                div(classes = "room-danger-zone") {
+                    button(type = ButtonType.button, classes = "room-disband-button") {
+                        hxDelete = "/rooms/${room.id}"
+                        hxTarget = "#room-delete-result"
+                        hxSwap = "innerHTML"
+                        hxConfirm = "确定解散「${room.name}」吗？所有成员将被移出，聊天记录会被删除，无法恢复。"
+                        attributes["hx-disabled-elt"] = "this"
+                        +"解散聊天室"
+                    }
+                    div {
+                        id = "room-delete-result"
+                        attributes["role"] = "status"
+                    }
+                }
             }
         }
     }
@@ -237,6 +261,7 @@ fun TagConsumer<*>.roomJoinRequestList(requests: List<RoomJoinRequest>) {
 private fun TagConsumer<*>.roomJoinRequestItem(request: RoomJoinRequest) {
     article(classes = "join-request") {
         id = "join-request-${request.id}"
+        attributes["data-room-id"] = request.roomId.toString()
         p { +request.username }
         p(classes = "join-request-room") { +"申请加入「${request.roomName}」" }
         div(classes = "join-request-actions") {
@@ -305,4 +330,24 @@ fun TagConsumer<*>.roomListDeleted(roomId: Long) {
 
 fun TagConsumer<*>.roomListChanged(room: Room) {
     roomItem(room, outOfBand = true)
+}
+
+fun TagConsumer<*>.roomMessagePreview(
+    roomId: Long,
+    message: Message?,
+    outOfBand: Boolean = false,
+    changed: Boolean = false,
+) {
+    span(classes = "room-message-preview") {
+        id = "room-message-preview-$roomId"
+        attributes["data-message-id"] = message?.id?.toString().orEmpty()
+        if (outOfBand) {
+            hxSwapOob = "outerHTML"
+            attributes["data-message-changed"] = changed.toString()
+        } else {
+            attributes["hx-preserve"] = "true"
+        }
+        if (message == null) +"还没有消息"
+        else +"${message.username}：${message.text}"
+    }
 }

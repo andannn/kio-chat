@@ -1,6 +1,5 @@
 package me.andannn.kio.chat
 
-import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -19,8 +18,6 @@ import androidx.navigation3.runtime.EntryProviderScope
 import androidx.navigation3.runtime.NavKey
 import kio.chat.domain.Room
 import kio.chat.domain.RoomJoinRequest
-import kio.chat.domain.RoomListEvent
-import kio.chat.domain.RoomJoinRequestEvent
 import me.andannn.kio.chat.widget.RoomJoinRequestsDialog
 import me.andannn.kio.chat.widget.JoinRoomDialog
 import me.andannn.kio.chat.widget.RoomListItem
@@ -33,6 +30,7 @@ import me.andannn.kio.chat.util.SnackBarController
 import me.andannn.kio.chat.util.rememberAndSetupSnackBarHostState
 import me.andannn.kio.chat.util.retainPresenter
 import me.andannn.kio.chat.util.stateInRetainedModel
+import me.andannn.kio.chat.widget.RoomListItemContent
 import org.koin.mp.KoinPlatform.getKoin
 
 fun EntryProviderScope<NavKey>.homeEntry(navigator: Navigator) {
@@ -50,7 +48,6 @@ private fun retainHomeState(
 }
 
 sealed interface HomeUiEvent {
-    data class OnRoomClick(val room: Room) : HomeUiEvent
     data class OnSubmitJoinRequest(val roomId: Long) : HomeUiEvent
     data class OnApproveRequest(val requestId: Long) : HomeUiEvent
     data class OnRejectRequest(val requestId: Long) : HomeUiEvent
@@ -132,7 +129,6 @@ private class HomeLayoutPresenter(
                 requests = requestsState,
             ) { event ->
                 when (event) {
-                    is HomeUiEvent.OnRoomClick -> navigator.navigateTo(Screen.RoomChat(event.room))
                     is HomeUiEvent.OnSubmitJoinRequest -> submitJoinRequest(event.roomId)
                     is HomeUiEvent.OnApproveRequest -> reviewRequest(event.requestId, approve = true)
                     is HomeUiEvent.OnRejectRequest -> reviewRequest(event.requestId, approve = false)
@@ -155,12 +151,14 @@ private fun Home(
     HomeContent(
         rooms = state.rooms,
         pendingCount = state.requests.size,
-        onShowRequests = { showRequests = true },
-        onShowJoinRoom = { showJoinRoom = true },
         modifier = modifier,
         snackbarHostState = rememberAndSetupSnackBarHostState(),
         onLogout = { state.eventSink(HomeUiEvent.OnLogoutClick) },
-        onRoomClick = { state.eventSink(HomeUiEvent.OnRoomClick(it)) },
+        onShowRequests = { showRequests = true },
+        onShowJoinRoom = { showJoinRoom = true },
+        roomItem = { room ->
+            RoomListItem(navigator = navigator, room = room)
+        }
     )
     if (showRequests) {
         RoomJoinRequestsDialog(
@@ -188,10 +186,10 @@ private fun HomeContent(
     modifier: Modifier = Modifier,
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
     onLogout: () -> Unit = {},
-    onRoomClick: (Room) -> Unit = {},
     pendingCount: Int = 0,
     onShowRequests: () -> Unit = {},
     onShowJoinRoom: () -> Unit = {},
+    roomItem: @Composable (Room) -> Unit
 ) {
     Scaffold(
         modifier = modifier,
@@ -270,7 +268,7 @@ private fun HomeContent(
                     )
                 }
                 items(rooms, key = { it.id }) { room ->
-                    RoomListItem(room = room, onClick = { onRoomClick(room) })
+                    roomItem(room)
                 }
             }
         }
@@ -281,6 +279,8 @@ private fun HomeContent(
 @Composable
 private fun HomePreview() {
     KioChatTheme(dynamicColor = false) {
-        HomeContent(listOf(Room(1, "公共聊天室"), Room(2, "日常交流")))
+        HomeContent(listOf(Room(1, "公共聊天室"), Room(2, "日常交流"))) {
+            RoomListItemContent(it, previewMessage = null)
+        }
     }
 }

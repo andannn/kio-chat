@@ -97,7 +97,7 @@ private class LoginLayoutPresenter(
                                 return@launch
                             }
 
-                            navigator.clearTopAndGoToRooms()
+                            navigator.clearTopAndGoToHome()
                         }
                     }
                 }

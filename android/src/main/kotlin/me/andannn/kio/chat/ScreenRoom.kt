@@ -1,6 +1,5 @@
 package me.andannn.kio.chat
 
-import android.util.Log
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -27,10 +26,13 @@ import androidx.navigation3.runtime.EntryProviderScope
 import androidx.navigation3.runtime.NavKey
 import kio.chat.domain.Message
 import kio.chat.domain.User
-import kio.chat.domain.ChatEvent
 import kio.chat.domain.Room
+import kio.chat.domain.UserChatEvent
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -68,7 +70,7 @@ sealed interface RoomUiEvent {
     data class OnUpdateMessage(val messageId: Long, val content: String) : RoomUiEvent
     data class OnDeleteMessage(val messageId: Long) : RoomUiEvent
     data object OnLoadHistory : RoomUiEvent
-    data object OnMembersClick : RoomUiEvent
+    data object OnSettingClick : RoomUiEvent
     data object OnBackClick : RoomUiEvent
     data object OnSendClick : RoomUiEvent
 }
@@ -98,7 +100,10 @@ private class RoomLayoutPresenter(
 
     private val roomId = room.id
 
-    private val roomFlow = repository.observeRoomById(room.id).stateInRetainedModel(room)
+    private val roomFlow = repository.observeRoomById(room.id)
+        .onEach { if (it == null) navigator.clearTopAndGoToHome() }
+        .filterNotNull()
+        .stateInRetainedModel(room)
     private val effectChannel = Channel<RoomEffect>(Channel.BUFFERED)
     private val effects = effectChannel.receiveAsFlow()
     var messages = mutableStateListOf<Message>()
@@ -110,37 +115,61 @@ private class RoomLayoutPresenter(
 
     init {
         retainedScope.launch {
-            val error = service.observeMessageEvents(roomId) { pack ->
-                Log.d(TAG, "observeMessageEvents: pack=${pack}")
-                userId = pack.userId
-                when (val event = pack.event) {
-                    is ChatEvent.Initial -> {
-                        historyBeforeId = event.message.minOfOrNull { it.id }
-                        hasMoreHistory = event.message.size >= 50
-                        messages.addAll(event.message.reversed())
-                        effectChannel.send(RoomEffect.ScrollToBottom(animated = false))
-                    }
-                    is ChatEvent.Added -> {
-                        messages.add(0, event.message)
+            val pendingEvents = mutableListOf<UserChatEvent>()
+            var initialized = false
+            val subscription = launch(start = CoroutineStart.UNDISPATCHED) {
+                repository.observeChatMessageEvent(roomId).collect { event ->
+                    if (event is UserChatEvent.Initial) return@collect
+                    if (!initialized) {
+                        pendingEvents.add(event)
+                    } else if (applyChatEvent(event)) {
                         effectChannel.send(RoomEffect.ScrollToBottom(animated = true))
-                    }
-                    is ChatEvent.Changed -> {
-                        val index = messages.indexOfFirst { it.id == event.message.id }
-                        if (index >= 0) {
-                            messages[index] = event.message
-                        }
-                    }
-                    is ChatEvent.Deleted -> {
-                        messages.removeIf { it.id == event.messageId }
                     }
                 }
             }
-            context(navigator, snackBarController) {
-                if (error != null) handleError(error = error)
+
+            isLoadingHistory = true
+            val (page, error) = try {
+                service.getMessageHistory(roomId, beforeId = Long.MAX_VALUE)
+            } finally {
+                isLoadingHistory = false
             }
-        }.invokeOnCompletion {
-            Log.d(TAG, "observeMessageEvents: finished")
+            if (error != null || page == null) {
+                subscription.cancel()
+                context(navigator, snackBarController) {
+                    if (error != null) handleError(error)
+                }
+                return@launch
+            }
+
+            userId = page.userId
+            messages.addAll(page.messages.distinctBy { it.id }.sortedByDescending { it.id })
+            historyBeforeId = page.messages.minOfOrNull { it.id }
+            hasMoreHistory = page.hasMore
+            pendingEvents.forEach { applyChatEvent(it) }
+            pendingEvents.clear()
+            initialized = true
+            effectChannel.trySend(RoomEffect.ScrollToBottom(animated = false))
         }
+    }
+
+    private fun applyChatEvent(event: UserChatEvent): Boolean {
+        when (event) {
+            is UserChatEvent.Initial -> Unit
+            is UserChatEvent.Added -> {
+                if (messages.none { it.id == event.message.id }) {
+                    val index = messages.indexOfFirst { it.id < event.message.id }
+                    messages.add(if (index < 0) messages.size else index, event.message)
+                    return true
+                }
+            }
+            is UserChatEvent.Changed -> {
+                val index = messages.indexOfFirst { it.id == event.message.id }
+                if (index >= 0) messages[index] = event.message
+            }
+            is UserChatEvent.Deleted -> messages.removeIf { it.id == event.messageId }
+        }
+        return false
     }
 
     context(navigator: Navigator, snackBar: SnackBarController)
@@ -217,7 +246,7 @@ private class RoomLayoutPresenter(
                     is RoomUiEvent.OnUpdateMessage -> updateMessage(event.messageId, event.content)
                     is RoomUiEvent.OnDeleteMessage -> deleteMessage(event.messageId)
                     RoomUiEvent.OnLoadHistory -> loadHistory()
-                    RoomUiEvent.OnMembersClick -> navigator.navigateTo(Screen.RoomMembers(roomState))
+                    RoomUiEvent.OnSettingClick -> navigator.navigateTo(Screen.RoomSetting(roomState))
                     RoomUiEvent.OnBackClick -> navigator.popBackStack()
                     RoomUiEvent.OnSendClick -> sendMessage()
                 }
@@ -266,7 +295,7 @@ private fun RoomUi(
         onDeleteMessage = { state.eventSink(RoomUiEvent.OnDeleteMessage(it)) },
         onSend = { state.eventSink(RoomUiEvent.OnSendClick) },
         onBack = { state.eventSink(RoomUiEvent.OnBackClick) },
-        onMembersClick = { state.eventSink(RoomUiEvent.OnMembersClick) },
+        onSettingClick = { state.eventSink(RoomUiEvent.OnSettingClick) },
     )
 }
 
@@ -286,7 +315,7 @@ private fun RoomContent(
     onMessageChanged: (String) -> Unit = {},
     onSend: () -> Unit = {},
     onBack: () -> Unit = {},
-    onMembersClick: () -> Unit = {},
+    onSettingClick: () -> Unit = {},
     onUpdateMessage: (Long, String) -> Unit = { _, _ -> },
     onDeleteMessage: (Long) -> Unit = {},
 ) {
@@ -305,7 +334,7 @@ private fun RoomContent(
                         )
                     }
                 },
-                actions = { TextButton(onClick = onMembersClick) { Text("成员") } },
+                actions = { TextButton(onClick = onSettingClick) { Text("设置") } },
                 navigationIcon = {
                     IconButton(onClick = {
                         onBack()

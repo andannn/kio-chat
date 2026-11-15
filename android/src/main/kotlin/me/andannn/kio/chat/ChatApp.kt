@@ -1,10 +1,20 @@
 package me.andannn.kio.chat
 
 import android.util.Log
+import androidx.compose.animation.ContentTransform
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.retain.retain
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.navigation3.runtime.entryProvider
 import androidx.navigation3.runtime.rememberNavBackStack
 import androidx.navigation3.runtime.rememberSaveableStateHolderNavEntryDecorator
@@ -24,6 +34,7 @@ fun ChatApp(
     Log.d(TAG, "ChatApp: initialScreen = $initialScreen")
     val backStack = rememberNavBackStack(initialScreen)
     val navigator = retain { RootNavigator() }
+    val layoutDirection = LocalLayoutDirection.current
 
     DisposableEffect(backStack) {
         navigator.backStack = backStack
@@ -36,6 +47,9 @@ fun ChatApp(
     NavDisplay(
         modifier = modifier,
         backStack = backStack,
+        transitionSpec = { horizontalSharedAxis(forward = true, layoutDirection) },
+        popTransitionSpec = { horizontalSharedAxis(forward = false, layoutDirection) },
+        predictivePopTransitionSpec = { horizontalSharedAxis(forward = false, layoutDirection) },
         sceneStrategies =
             listOf(
                 DialogSceneStrategy(),
@@ -53,7 +67,16 @@ fun ChatApp(
                 registerEntry(navigator)
                 homeEntry(navigator)
                 roomEntry(navigator)
-                roomMembersEntry(navigator)
+                roomSettingEntry(navigator)
             },
     )
+}
+
+private fun horizontalSharedAxis(forward: Boolean, layoutDirection: LayoutDirection): ContentTransform {
+    val direction = (if (forward) 1 else -1) * (if (layoutDirection == LayoutDirection.Ltr) 1 else -1)
+    val fadeSpec = tween<Float>(durationMillis = 90, delayMillis = 50, easing = LinearEasing)
+    val transform = (slideInHorizontally { it / 5 * direction } + fadeIn(fadeSpec)) togetherWith
+        (slideOutHorizontally { -it / 5 * direction } + fadeOut(fadeSpec))
+    transform.targetContentZIndex = if (forward) 1f else -1f
+    return transform
 }

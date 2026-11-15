@@ -3,6 +3,7 @@ package kio.chat
 import io.ktor.http.HttpStatusCode
 import kio.chat.util.respondByContentType
 import kotlinx.serialization.json.Json
+import kio.chat.domain.RoomMembersPage
 import kio.chat.domain.Repository
 import kio.chat.components.roomMemberList
 import kio.chat.components.roomList
@@ -16,6 +17,7 @@ import kio.http.respond
 import kio.http.route
 import kio.http.get
 import kio.http.post
+import kio.http.delete
 import kio.http.receiveFormParameters
 import kio.chat.page.chatMainPage
 import kotlinx.coroutines.currentCoroutineContext
@@ -31,6 +33,7 @@ fun Route.roomRoute() {
         route("{roomId}") {
             inject(RoomId()) {
                 get { call -> call.chatMainPage(requireRoomId()) }
+                delete { call -> call.handleDeleteRoom() }
                 get("members") { call -> call.handleGetRoomMembers() }
                 get("content") { call -> call.handleGetRoomContent() }
                 post("name-editing") { call -> call.handleEditRoomName() }
@@ -88,15 +91,17 @@ private suspend fun CallContext.handleGetRoomContent() {
         respond(HttpStatusCode.NotFound, "聊天室不存在。")
         return
     }
-    respondHtml { chatRoomContent(room) }
+    val isOwner = repo.isRoomOwner(room.id, requireSession().userId)
+    respondHtml { chatRoomContent(room, isOwner) }
 }
 
 context(repo: Repository)
 private suspend fun CallContext.handleGetRoomMembers() {
     val members = repo.getRoomMembers(requireRoomId())
+    val page = RoomMembersPage(requireSession().userId, members)
     respondByContentType(
         status = HttpStatusCode.OK,
-        buildJson = { Json.encodeToString(members) },
+        buildJson = { Json.encodeToString(page) },
         buildHtml = { roomMemberList(members) },
     )
 }
@@ -128,4 +133,13 @@ private suspend fun CallContext.handleCommitRoomName() {
         return
     }
     respond(HttpStatusCode.OK)
+}
+
+context(repo: Repository)
+private suspend fun CallContext.handleDeleteRoom() {
+    if (!repo.deleteRoom(requireRoomId(), requireSession().userId)) {
+        respond(HttpStatusCode.Forbidden, "聊天室不存在，或你不是群主。")
+        return
+    }
+    respond(HttpStatusCode.OK, configHeaders = { append("HX-Redirect", "/") })
 }

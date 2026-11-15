@@ -2,13 +2,10 @@ package kio.chat
 
 import io.ktor.http.*
 import kio.chat.components.*
-import kio.chat.domain.ChatEvent
 import kio.chat.domain.MessagePage
 import kio.chat.util.respondByContentType
-import kio.chat.domain.MessagePack
 import kio.chat.domain.Repository
 import kio.http.*
-import kotlinx.html.stream.createHTML
 import kotlinx.serialization.json.Json
 
 context(repo: Repository)
@@ -17,43 +14,11 @@ fun Route.messagesRoute() {
         post { call -> call.handleNewMessage() }
         get { call -> call.handleGetMessageHistory() }
 
-        websocket("/events") { socket -> socket.handleObserveChatRoomEvent() }
-
         route("/{id}") {
             get { call -> call.handleGetMessage() }
             patch { call -> call.handleUpdateMessage() }
             delete { call -> call.handleDeleteMessage() }
             get("/editor") { call -> call.handleGetEditingMessage() }
-        }
-    }
-}
-
-context(repo: Repository)
-private suspend fun WebsocketContext.handleObserveChatRoomEvent() {
-    val format = call.requestParameters["format"]
-    val isJson = format == "json"
-    val userId = requireSession().userId
-    val roomId = requireRoomId()
-    repo.observeChatMessageEvent(roomId).collect { event ->
-        if (isJson) {
-            sendText(Json.encodeToString(MessagePack(userId, event)))
-        } else {
-            sendText(createHTML().apply {
-                when (event) {
-                    is ChatEvent.Initial -> {
-                        messageList(event.message, userId, roomId)
-                    }
-                    is ChatEvent.Added -> {
-                        messageAppend(event.message, userId == event.message.user.id, roomId)
-                    }
-                    is ChatEvent.Changed -> {
-                        messageChanged(event.message, userId == event.message.user.id, roomId)
-                    }
-                    is ChatEvent.Deleted -> {
-                        messageDeleted(event.messageId)
-                    }
-                }
-            }.finalize())
         }
     }
 }
@@ -68,7 +33,7 @@ private suspend fun CallContext.handleGetMessageHistory() {
     }
     val roomId = requireRoomId()
     val messages = repo.getMessageList(beforeId, limit = 51, roomId)
-    val page = MessagePage(messages.takeLast(50), hasMore = messages.size > 50)
+    val page = MessagePage(messages.takeLast(50), hasMore = messages.size > 50, userId = userId)
     respondByContentType(
         status = HttpStatusCode.OK,
         buildJson = { Json.encodeToString(page) },

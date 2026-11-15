@@ -4,6 +4,7 @@ import kio.chat.components.*
 import kio.chat.domain.Repository
 import kio.chat.domain.RoomJoinRequestEvent
 import kio.chat.domain.RoomListEvent
+import kio.chat.domain.UserChatEvent
 import kio.chat.domain.UserEvent
 import kio.http.WebsocketContext
 import kio.http.sendText
@@ -34,16 +35,22 @@ internal suspend fun WebsocketContext.handleObserveUserEvent() = coroutineScope 
         }
     }
     launch {
-        repo.observeRoomListEvent(userId).collect { event ->
+        repo.observeRoomAndChatMessageEventByUser(userId).collect { event ->
             if (isJson) {
                 sendText(Json.encodeToString<UserEvent>(event))
             } else {
                 sendText(createHTML().apply {
                     when (event) {
-                        is RoomListEvent.Initial -> roomListInitial(event.rooms, selectedRoomId)
-                        is RoomListEvent.Added -> roomListAdded(event.room)
-                        is RoomListEvent.Deleted -> roomListDeleted(event.roomId)
-                        is RoomListEvent.Changed -> roomListChanged(event.room)
+                        is RoomListEvent -> {
+                            when (event) {
+                                is RoomListEvent.Initial -> roomListInitial(event.rooms, selectedRoomId)
+                                is RoomListEvent.Added -> roomListAdded(event.room)
+                                is RoomListEvent.Deleted -> roomListDeleted(event.roomId)
+                                is RoomListEvent.Changed -> roomListChanged(event.room)
+                            }
+                        }
+                        is UserChatEvent -> chatMessageEvent(event, userId)
+                        else -> Unit
                     }
                 }.finalize())
             }

@@ -52,22 +52,24 @@ sealed interface RoomJoinRequestEvent: UserEvent {
 }
 
 @Serializable
-sealed interface ChatEvent {
-    @Serializable
-    @SerialName("initial")
-    data class Initial(val message: List<Message>) : ChatEvent
+sealed interface UserChatEvent : UserEvent {
+    val roomId: Long
 
     @Serializable
-    @SerialName("added")
-    data class Added(val message: Message) : ChatEvent
+    @SerialName("chat_initial")
+    data class Initial(override val roomId: Long, val message: List<Message>) : UserChatEvent
 
     @Serializable
-    @SerialName("changed")
-    data class Changed(val message: Message) : ChatEvent
+    @SerialName("chat_added")
+    data class Added(override val roomId: Long, val message: Message) : UserChatEvent
 
     @Serializable
-    @SerialName("deleted")
-    data class Deleted(val messageId: Long) : ChatEvent
+    @SerialName("chat_changed")
+    data class Changed(override val roomId: Long, val message: Message) : UserChatEvent
+
+    @Serializable
+    @SerialName("chat_deleted")
+    data class Deleted(override val roomId: Long, val messageId: Long) : UserChatEvent
 }
 
 @Serializable
@@ -90,16 +92,10 @@ sealed interface RoomListEvent: UserEvent {
 }
 
 @Serializable
-@SerialName("message_pack")
-data class MessagePack(
-    @SerialName("userId") val userId: Long,
-    @SerialName("event") val event: ChatEvent,
-)
-
-@Serializable
 data class MessagePage(
     @SerialName("messages") val messages: List<Message>,
     @SerialName("hasMore") val hasMore: Boolean,
+    @SerialName("userId") val userId: Long,
 )
 
 @Serializable
@@ -131,4 +127,10 @@ data class RoomJoinRequest(
     @SerialName("roomName") val roomName: String,
     @SerialName("userId") val userId: Long,
     @SerialName("username") val username: String,
+)
+
+@Serializable
+data class RoomMembersPage(
+    @SerialName("userId") val userId: Long,
+    @SerialName("members") val members: List<RoomMember>,
 )

@@ -33,3 +33,30 @@ function updateJoinRequestCount(container) {
     badge.hidden = count === 0;
     badge.setAttribute("aria-label", `${count} 条待处理申请`);
 }
+
+function filterUserEventSwap(event) {
+    const target = event.detail.target;
+    if (target.classList.contains("room-item") && !event.detail.fragment.childNodes.length) {
+        const roomId = target.id.slice("room-link-".length);
+        document.querySelectorAll(`.join-request[data-room-id="${roomId}"]`).forEach(request => request.remove());
+        if (document.querySelector(".chat-room")?.dataset.roomId === roomId) {
+            window.location.replace("/");
+        }
+    }
+    const message = event.detail.fragment.querySelector("[data-chat-room-id]");
+    if (message && message.dataset.chatRoomId !== document.querySelector(".chat-room")?.dataset.roomId) {
+        event.detail.shouldSwap = false;
+        return;
+    }
+    const current = event.detail.target;
+    if (!current.classList.contains("room-message-preview")) return;
+    const incoming = event.detail.fragment.querySelector(".room-message-preview");
+    if (!incoming) return;
+    const currentId = current.dataset.messageId;
+    const incomingId = incoming.dataset.messageId;
+    if (incoming.dataset.messageChanged === "true") {
+        event.detail.shouldSwap = Boolean(incomingId) && incomingId === currentId;
+    } else if (currentId) {
+        event.detail.shouldSwap = Boolean(incomingId) && BigInt(incomingId) >= BigInt(currentId);
+    }
+}

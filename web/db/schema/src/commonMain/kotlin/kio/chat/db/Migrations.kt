@@ -14,6 +14,7 @@ val migrations
         migration8,
         migration9,
         migration10,
+        migration11,
     )
 
 // Test cleanup, matching kio-note. Use only with a dedicated test database.
@@ -300,5 +301,16 @@ $$;
 CREATE TRIGGER rooms_notify
     AFTER UPDATE OF name ON rooms
     FOR EACH ROW EXECUTE FUNCTION notify_room();
+        """.trimIndent()
+)
+
+private val migration11 = Migration(
+    version = 11,
+    name = "cascade messages on room deletion",
+    sql = """
+ALTER TABLE messages
+    DROP CONSTRAINT messages_room_id_fkey,
+    ADD CONSTRAINT messages_room_id_fkey
+        FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE;
         """.trimIndent()
 )
