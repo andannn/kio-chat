@@ -35,6 +35,7 @@ import io.ktor.http.renderSetCookieHeader
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.client.call.body
 import io.ktor.client.request.parameter
+import kio.chat.domain.Room
 import kio.chat.domain.UserEvent
 import kio.chat.domain.RoomMembersPage
 import kio.chat.domain.MessagePage
@@ -61,6 +62,7 @@ interface ChatService {
     suspend fun deleteMessage(roomId: Long, messageId: Long): ApiResult<Unit>
     suspend fun getMessageHistory(roomId: Long, beforeId: Long): ApiResult<MessagePage>
     suspend fun logout(): ApiResult<Unit>
+    suspend fun createRoom(name: String): ApiResult<Room>
     suspend fun disbandRoom(roomId: Long): ApiResult<Unit>
     suspend fun renameRoom(roomId: Long, name: String): ApiResult<Unit>
     suspend fun getRoomMembers(roomId: Long): ApiResult<RoomMembersPage>
@@ -186,6 +188,15 @@ class ChatServiceImpl : ChatService {
 
     override suspend fun logout(): ApiResult<Unit> = tryGetResult {
         httpClient.post("/logout")
+    }
+
+    override suspend fun createRoom(name: String): ApiResult<Room> = tryGetResult {
+        httpClient.submitForm(
+            url = "/rooms",
+            formParameters = Parameters.build { append("name", name) },
+        ) {
+            contentType(ContentType.Application.FormUrlEncoded)
+        }.body<Room>()
     }
 
     override suspend fun disbandRoom(roomId: Long): ApiResult<Unit> = tryGetResult {

@@ -12,6 +12,7 @@ fun TagConsumer<*>.roomAsideMenu() {
     header(classes = "sidebar-header") {
         h1(classes = "sidebar-title") { +"Kio Chat" }
         p(classes = "section-title") { +"聊天室" }
+        roomCreateForm()
         details(classes = "join-room") {
             summary { +"加入聊天室" }
             form {
@@ -43,6 +44,31 @@ fun TagConsumer<*>.roomAsideMenu() {
             hxPost = "/logout"
             hxSwap = "none"
             +"退出登录"
+        }
+    }
+}
+
+private fun TagConsumer<*>.roomCreateForm() {
+    details(classes = "join-room") {
+        summary { +"创建聊天室" }
+        form {
+            hxPost = "/rooms"
+            hxTarget = "#create-room-result"
+            hxSwap = "innerHTML"
+            attributes["hx-disabled-elt"] = "find button"
+            label {
+                +"聊天室名称"
+                textInput {
+                    name = "name"
+                    required = true
+                    placeholder = "给聊天室起个名字"
+                }
+            }
+            button(type = ButtonType.submit) { +"创建" }
+            div {
+                id = "create-room-result"
+                attributes["role"] = "status"
+            }
         }
     }
 }

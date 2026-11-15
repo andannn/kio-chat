@@ -13,6 +13,7 @@ import kio.chat.database.getRoomMembers
 import kio.chat.database.isRoomMember
 import kio.chat.database.ChatRoomMemberEntity
 import kio.chat.database.ChatRoomEntity
+import kio.chat.database.createRoomForUser
 import kio.chat.database.getRoomById
 import kio.chat.database.ChatUserEntity
 import kio.chat.database.ChatMessageWithUserEntity
@@ -61,6 +62,7 @@ interface Repository {
     suspend fun approveRoomJoinRequest(requestId: Long, ownerId: Long): Boolean
     suspend fun rejectRoomJoinRequest(requestId: Long, ownerId: Long): Boolean
     suspend fun isRoomOwner(roomId: Long, userId: Long): Boolean
+    suspend fun createRoom(userId: Long, name: String): Room
     suspend fun getRoomList(userId: Long): List<Room>
     suspend fun getRoomMembers(roomId: Long): List<RoomMember>
     suspend fun isRoomMember(roomId: Long, userId: Long): Boolean
@@ -207,6 +209,9 @@ private class ServerRepositoryImpl(
 
     override suspend fun isRoomOwner(roomId: Long, userId: Long): Boolean =
         getRoomMembers(roomId).any { it.userId == userId && it.role == RoomRole.Owner }
+
+    override suspend fun createRoom(userId: Long, name: String): Room =
+        pgPool.useConnection { it.createRoomForUser(userId, name) }.toRoom()
 
     override suspend fun getRoomList(userId: Long): List<Room> =
         pgPool.useConnection { it.getUserRoomList(userId) }.map { it.toRoom() }

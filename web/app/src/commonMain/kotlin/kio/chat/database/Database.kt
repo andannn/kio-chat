@@ -11,6 +11,7 @@ import kio.postgres.types.PostgresInt8Serializer
 import kio.postgres.types.PostgresTextSerializer
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -172,6 +173,19 @@ suspend fun PgConnection.createRoom(name: String): ChatRoomEntity? =
     ) {
         param(name, PostgresTextSerializer)
     }.firstOrNull()
+
+suspend fun PgConnection.createRoomForUser(userId: Long, name: String): ChatRoomEntity = transaction { tx ->
+    val room = tx.query<ChatRoomEntity>(
+        "INSERT INTO rooms(name) VALUES ($1) RETURNING id, name, create_at"
+    ) {
+        param(name, PostgresTextSerializer)
+    }.first()
+    tx.exec("INSERT INTO room_members(room_id, user_id, role) VALUES ($1, $2, 'owner')") {
+        param(room.id, PostgresInt8Serializer)
+        param(userId, PostgresInt8Serializer)
+    }
+    room
+}
 
 suspend fun PgConnection.getRoomList(): List<ChatRoomEntity> =
     query<ChatRoomEntity>("SELECT id, name, create_at FROM rooms ORDER BY id").toList()

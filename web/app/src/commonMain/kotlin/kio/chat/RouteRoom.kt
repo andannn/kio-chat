@@ -19,6 +19,7 @@ import kio.http.get
 import kio.http.post
 import kio.http.delete
 import kio.http.receiveFormParameters
+import kotlinx.html.div
 import kio.chat.page.chatMainPage
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
@@ -28,6 +29,7 @@ import kotlin.coroutines.CoroutineContext
 context(repo: Repository)
 fun Route.roomRoute() {
     route("rooms") {
+        post { call -> call.handleCreateRoom() }
         get { call -> call.handleGetRoomList() }
         roomJoinRequestsRoute()
         route("{roomId}") {
@@ -71,6 +73,27 @@ private data class CoroutineRoomId(
     companion object Key : CoroutineContext.Key<CoroutineRoomId>
 
     override fun toString(): String = "CoroutineRoomId(${roomId})"
+}
+
+context(repo: Repository)
+private suspend fun CallContext.handleCreateRoom() {
+    val name = receiveFormParameters()["name"]?.trim().orEmpty()
+    if (name.isEmpty()) {
+        val message = "给聊天室起个名字吧。"
+        respondByContentType(
+            status = HttpStatusCode.BadRequest,
+            buildJson = { Json.encodeToString(message) },
+            buildHtml = { div { +message } },
+        )
+        return
+    }
+    val room = repo.createRoom(requireSession().userId, name)
+    respondByContentType(
+        status = HttpStatusCode.Created,
+        configHeaders = { append("HX-Redirect", "/rooms/${room.id}") },
+        buildJson = { Json.encodeToString(room) },
+        buildHtml = {},
+    )
 }
 
 context(repo: Repository)

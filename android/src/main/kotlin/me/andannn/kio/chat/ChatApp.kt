@@ -66,6 +66,7 @@ fun ChatApp(
                 loginEntry(navigator)
                 registerEntry(navigator)
                 homeEntry(navigator)
+                roomJoinRequestsEntry(navigator)
                 roomEntry(navigator)
                 roomSettingEntry(navigator)
             },

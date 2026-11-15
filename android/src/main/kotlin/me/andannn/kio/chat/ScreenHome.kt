@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.outlined.Forum
+import androidx.compose.material.icons.outlined.GroupAdd
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,10 +19,10 @@ import androidx.navigation3.runtime.EntryProviderScope
 import androidx.navigation3.runtime.NavKey
 import kio.chat.domain.Room
 import kio.chat.domain.RoomJoinRequest
-import me.andannn.kio.chat.widget.RoomJoinRequestsDialog
 import me.andannn.kio.chat.widget.JoinRoomDialog
 import me.andannn.kio.chat.widget.RoomListItem
 import kotlinx.coroutines.launch
+import me.andannn.kio.chat.widget.CreateRoomDialog
 import me.andannn.kio.chat.ui.theme.KioChatTheme
 import me.andannn.kio.chat.util.LocalSnackBarController
 import me.andannn.kio.chat.util.Presenter
@@ -48,9 +49,9 @@ private fun retainHomeState(
 }
 
 sealed interface HomeUiEvent {
+    data class OnCreateRoom(val name: String) : HomeUiEvent
     data class OnSubmitJoinRequest(val roomId: Long) : HomeUiEvent
-    data class OnApproveRequest(val requestId: Long) : HomeUiEvent
-    data class OnRejectRequest(val requestId: Long) : HomeUiEvent
+    data object OnJoinRequestsClick : HomeUiEvent
     data object OnLogoutClick : HomeUiEvent
 }
 
@@ -69,12 +70,28 @@ private class HomeLayoutPresenter(
     private val rooms = repository.observeRooms().stateInRetainedModel(emptyList())
     private val requests = repository.observeRoomJoinRequest().stateInRetainedModel(emptyList())
     private var submitting = false
+    private var creating = false
 
     init {
         retainedScope.launch {
             val error = repository.observingUserEvent()
             context(navigator, snackBarController) {
                 if (error != null) handleError(error)
+            }
+        }
+    }
+
+    context(navigator: Navigator, snackBar: SnackBarController)
+    private fun createRoom(name: String) {
+        val value = name.trim()
+        if (value.isEmpty() || creating) return
+        creating = true
+        retainedScope.launch {
+            try {
+                val (_, error) = service.createRoom(value)
+                if (error != null) handleError(error)
+            } finally {
+                creating = false
             }
         }
     }
@@ -98,19 +115,6 @@ private class HomeLayoutPresenter(
     }
 
     context(navigator: Navigator, snackBar: SnackBarController)
-    private fun reviewRequest(requestId: Long, approve: Boolean) {
-        retainedScope.launch {
-            val (_, error) = if (approve) {
-                service.approveRoomJoinRequest(requestId)
-            }
-            else {
-                service.rejectRoomJoinRequest(requestId)
-            }
-            if (error != null) handleError(error)
-        }
-    }
-
-    context(navigator: Navigator, snackBar: SnackBarController)
     private fun logout() {
         retainedScope.launch {
             val (_, error) = service.logout()
@@ -129,9 +133,9 @@ private class HomeLayoutPresenter(
                 requests = requestsState,
             ) { event ->
                 when (event) {
+                    is HomeUiEvent.OnCreateRoom -> createRoom(event.name)
                     is HomeUiEvent.OnSubmitJoinRequest -> submitJoinRequest(event.roomId)
-                    is HomeUiEvent.OnApproveRequest -> reviewRequest(event.requestId, approve = true)
-                    is HomeUiEvent.OnRejectRequest -> reviewRequest(event.requestId, approve = false)
+                    HomeUiEvent.OnJoinRequestsClick -> navigator.navigateTo(Screen.RoomJoinRequests)
                     HomeUiEvent.OnLogoutClick -> logout()
                 }
             }
@@ -146,26 +150,28 @@ private fun Home(
     presenter: Presenter<HomeLayoutState> = retainHomeState(navigator),
 ) {
     val state = presenter.present()
-    var showRequests by remember { mutableStateOf(false) }
     var showJoinRoom by remember { mutableStateOf(false) }
+    var showCreateRoom by remember { mutableStateOf(false) }
     HomeContent(
         rooms = state.rooms,
         pendingCount = state.requests.size,
         modifier = modifier,
         snackbarHostState = rememberAndSetupSnackBarHostState(),
         onLogout = { state.eventSink(HomeUiEvent.OnLogoutClick) },
-        onShowRequests = { showRequests = true },
+        onShowRequests = { state.eventSink(HomeUiEvent.OnJoinRequestsClick) },
         onShowJoinRoom = { showJoinRoom = true },
+        onShowCreateRoom = { showCreateRoom = true },
         roomItem = { room ->
             RoomListItem(navigator = navigator, room = room)
         }
     )
-    if (showRequests) {
-        RoomJoinRequestsDialog(
-            requests = state.requests,
-            onDismiss = { showRequests = false },
-            onApprove = { state.eventSink(HomeUiEvent.OnApproveRequest(it)) },
-            onReject = { state.eventSink(HomeUiEvent.OnRejectRequest(it)) },
+    if (showCreateRoom) {
+        CreateRoomDialog(
+            onDismiss = { showCreateRoom = false },
+            onSubmit = {
+                showCreateRoom = false
+                state.eventSink(HomeUiEvent.OnCreateRoom(it))
+            },
         )
     }
     if (showJoinRoom) {
@@ -189,18 +195,12 @@ private fun HomeContent(
     pendingCount: Int = 0,
     onShowRequests: () -> Unit = {},
     onShowJoinRoom: () -> Unit = {},
+    onShowCreateRoom: () -> Unit = {},
     roomItem: @Composable (Room) -> Unit
 ) {
     Scaffold(
         modifier = modifier,
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = onShowJoinRoom,
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("加入聊天室") },
-            )
-        },
         topBar = {
             TopAppBar(
                 title = { Text("Kio Chat") },
@@ -234,9 +234,26 @@ private fun HomeContent(
                 .fillMaxSize()
                 .padding(padding)
                 .consumeWindowInsets(padding),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 96.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    FilledTonalButton(onClick = onShowCreateRoom, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                        Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                        Text("创建聊天室")
+                    }
+                    OutlinedButton(onClick = onShowJoinRoom, modifier = Modifier.weight(1f)) {
+                        Icon(Icons.Outlined.GroupAdd, contentDescription = null, modifier = Modifier.size(ButtonDefaults.IconSize))
+                        Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                        Text("加入聊天室")
+                    }
+                }
+            }
             if (rooms.isEmpty()) {
                 item {
                     Column(

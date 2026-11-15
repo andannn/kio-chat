@@ -66,11 +66,12 @@ class MockRepositoryImpl : Repository {
         return  sessions[sessionId]
     }
 
-    private fun createRoom(userId: Long, name: String): Room {
+    override suspend fun createRoom(userId: Long, name: String): Room {
         require(users.values.any { it.id == userId }) { "Unknown user" }
         return Room(nextRoomId++, name).also {
             rooms.add(it)
             roomMembers[it.id to userId] = RoomRole.Owner
+            messageEventFlow.emit(MockMessageEvent.RoomsMessage(userId, RoomListEvent.Added(it)))
         }
     }
 
