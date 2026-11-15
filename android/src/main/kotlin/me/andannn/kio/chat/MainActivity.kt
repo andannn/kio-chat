@@ -4,11 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.window.DialogProperties
+import me.andannn.kio.chat.widget.UpdateDialog
 import kio.chat.domain.AppVersion
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,8 +27,8 @@ class MainActivity : ComponentActivity() {
         var initialScreen by mutableStateOf<Screen?>(null)
         var requiredVersion by mutableStateOf<AppVersion?>(null)
 
+        val service = getKoin().get<ChatService>()
         lifecycleScope.launch {
-            val service = getKoin().get<ChatService>()
             while (true) {
                 val (version, error) = service.getAppVersion()
                 if (error != null || version == null) {
@@ -69,23 +65,7 @@ class MainActivity : ComponentActivity() {
                 initialScreen?.let { ChatApp(it) }
 
                 requiredVersion?.let { version ->
-                    val uriHandler = LocalUriHandler.current
-                    AlertDialog(
-                        onDismissRequest = {},
-                        properties = DialogProperties(
-                            dismissOnBackPress = false,
-                            dismissOnClickOutside = false,
-                        ),
-                        title = { Text("请更新后继续使用") },
-                        text = {
-                            Text("当前版本：${BuildConfig.VERSION_NAME}\n最新版本：${version.versionName}")
-                        },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                uriHandler.openUri("https://133.117.75.202:7879/downloads/kio-chat.apk")
-                            }) { Text("下载更新") }
-                        },
-                    )
+                    UpdateDialog(version, service)
                 }
             }
         }

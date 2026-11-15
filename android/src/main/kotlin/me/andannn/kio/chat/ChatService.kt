@@ -1,5 +1,11 @@
 package me.andannn.kio.chat
 
+import java.io.File
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import io.ktor.client.request.prepareGet
+import io.ktor.client.statement.bodyAsChannel
+import io.ktor.utils.io.readAvailable
 import android.util.Log
 import android.webkit.CookieManager
 import io.ktor.client.plugins.websocket.webSocket
@@ -24,6 +30,7 @@ import io.ktor.client.request.patch
 import io.ktor.client.request.setBody
 import io.ktor.client.request.forms.FormDataContent
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.encodedPath
 import io.ktor.http.ContentType
 import io.ktor.http.Cookie
 import io.ktor.http.HttpHeaders
@@ -71,6 +78,7 @@ interface ChatService {
     suspend fun approveRoomJoinRequest(requestId: Long): ApiResult<Unit>
     suspend fun rejectRoomJoinRequest(requestId: Long): ApiResult<Unit>
     suspend fun observeUserEvents(onEvent: suspend (UserEvent) -> Unit): ApiError?
+    suspend fun downloadApk(destination: File): ApiResult<Unit>
     suspend fun getAppVersion(): ApiResult<AppVersion>
     suspend fun checkLogin(): ApiResult<Unit>
 }
@@ -247,6 +255,30 @@ class ChatServiceImpl : ChatService {
             }
         }
     }.error
+
+    override suspend fun downloadApk(destination: File): ApiResult<Unit> = tryGetResult {
+        withContext(Dispatchers.IO) {
+            var completed = false
+            try {
+                httpClient.prepareGet("/downloads/kio-chat.apk") {
+                    headers.append(HttpHeaders.CacheControl, "no-cache")
+                }.execute { response ->
+                    destination.outputStream().use { output ->
+                        val channel = response.bodyAsChannel()
+                        val buffer = ByteArray(8192)
+                        while (true) {
+                            val count = channel.readAvailable(buffer)
+                            if (count == -1) break
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                }
+                completed = true
+            } finally {
+                if (!completed) destination.delete()
+            }
+        }
+    }
 
     override suspend fun getAppVersion(): ApiResult<AppVersion> = tryGetResult {
         httpClient.get("/app/version") {
