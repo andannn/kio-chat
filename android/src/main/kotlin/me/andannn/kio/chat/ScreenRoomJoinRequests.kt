@@ -145,7 +145,7 @@ private fun RoomJoinRequestsContent(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                 ) {
                     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(request.username, style = MaterialTheme.typography.titleMedium)
+                        Text(request.nickname, style = MaterialTheme.typography.titleMedium)
                         Text(
                             "申请加入「${request.roomName}」",
                             style = MaterialTheme.typography.bodyMedium,

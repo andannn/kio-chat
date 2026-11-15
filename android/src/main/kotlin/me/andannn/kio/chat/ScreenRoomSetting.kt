@@ -274,7 +274,7 @@ private fun RoomSettingContent(
             }
             items(members, key = { it.userId }) { member ->
                 ListItem(
-                    headlineContent = { Text(member.username) },
+                    headlineContent = { Text(member.nickname) },
                     supportingContent = {
                         Text(when (member.role) {
                             RoomRole.Owner -> "群主"

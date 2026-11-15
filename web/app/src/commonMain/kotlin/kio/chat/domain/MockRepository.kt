@@ -32,7 +32,7 @@ class MockRepositoryImpl : Repository {
         users[user.username] = user
         repeat(125) {
             messageRooms[nextMessageId] = 1
-            messages.add(Message(nextMessageId++, user, "Mock message ${it + 1}", user.username))
+            messages.add(Message(nextMessageId++, user, "Mock message ${it + 1}", user.nickname))
         }
     }
 
@@ -45,11 +45,11 @@ class MockRepositoryImpl : Repository {
     override suspend fun verifyPassword(user: User, password: String): Boolean =
         user.passwordHash == password
 
-    override suspend fun createUser(userName: String, password: String): User? {
+    override suspend fun createUser(userName: String, password: String, nickname: String): User? {
         if (users.containsKey(userName)) return null
-        return User(nextUserId++, userName, password).also {
+        return User(nextUserId++, userName, password, nickname).also {
             users[userName] = it
-            createRoom(it.id, "${it.username}的房间")
+            createRoom(it.id, "${it.nickname}的房间")
         }
     }
 
@@ -82,7 +82,7 @@ class MockRepositoryImpl : Repository {
             return null to CreateRoomJoinRequestError.RequestAlreadyExist
         }
         val user = requireNotNull(users.values.find { it.id == userId })
-        val request = RoomJoinRequest(nextJoinRequestId++, roomId, requireNotNull(getRoomById(roomId)).name, userId, user.username)
+        val request = RoomJoinRequest(nextJoinRequestId++, roomId, requireNotNull(getRoomById(roomId)).name, userId, user.nickname)
         joinRequests.add(request)
         emitJoinRequestEvent(request.roomId, RoomJoinRequestEvent.Added(request))
         return request.id to null
@@ -117,7 +117,7 @@ class MockRepositoryImpl : Repository {
 
     override suspend fun getRoomMembers(roomId: Long): List<RoomMember> =
         users.values.filter { (roomId to it.id) in roomMembers }
-            .sortedBy { it.id }.map { RoomMember(it.id, it.username, roomMembers.getValue(roomId to it.id)) }
+            .sortedBy { it.id }.map { RoomMember(it.id, it.nickname, roomMembers.getValue(roomId to it.id)) }
 
     override suspend fun isRoomMember(roomId: Long, userId: Long): Boolean =
         (roomId to userId) in roomMembers
@@ -206,7 +206,7 @@ class MockRepositoryImpl : Repository {
     override suspend fun recordMessage(userId: Long, msg: String, roomId: Long) {
         requireNotNull(getRoomById(roomId)) { "Unknown room" }
         val user = requireNotNull(users.values.find { it.id == userId }) { "Unknown user" }
-        val message = Message(nextMessageId++, user, msg, user.username)
+        val message = Message(nextMessageId++, user, msg, user.nickname)
         messageRooms[message.id] = roomId
         messages.add(message)
         messageEventFlow.emit(MockMessageEvent.ChatMessageEvent(UserChatEvent.Added(roomId, message)))

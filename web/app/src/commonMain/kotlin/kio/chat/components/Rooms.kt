@@ -229,7 +229,7 @@ fun TagConsumer<*>.roomMemberList(members: List<RoomMember>) {
     ul {
         members.forEach { member ->
             li {
-                +member.username
+                +member.nickname
                 span(classes = "member-role") {
                     +when (member.role) {
                         RoomRole.Owner -> "群主"
@@ -288,7 +288,7 @@ private fun TagConsumer<*>.roomJoinRequestItem(request: RoomJoinRequest) {
     article(classes = "join-request") {
         id = "join-request-${request.id}"
         attributes["data-room-id"] = request.roomId.toString()
-        p { +request.username }
+        p { +request.nickname }
         p(classes = "join-request-room") { +"申请加入「${request.roomName}」" }
         div(classes = "join-request-actions") {
             button(type = ButtonType.button) {
@@ -374,6 +374,6 @@ fun TagConsumer<*>.roomMessagePreview(
             attributes["hx-preserve"] = "true"
         }
         if (message == null) +"还没有消息"
-        else +"${message.username}：${message.text}"
+        else +"${message.nickname}：${message.text}"
     }
 }

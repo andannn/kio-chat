@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
@@ -6,12 +7,17 @@ plugins {
     alias(libs.plugins.serialization)
 }
 
+val signingProperties = Properties().apply {
+    val propertiesFile = rootProject.file("keystore.properties")
+    if (propertiesFile.isFile) propertiesFile.inputStream().use { load(it) }
+}
+
 android {
     namespace = "me.andannn.kio.chat"
     defaultConfig {
         applicationId = "me.andannn.kio.chat"
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = providers.gradleProperty("app.versionCode").get().toInt()
+        versionName = providers.gradleProperty("app.versionName").get()
 
         compileSdk =
             libs.versions.android.compileSdk
@@ -27,12 +33,21 @@ android {
                 .toInt()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
-        signingConfig = signingConfigs.getByName("debug")
     }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    signingConfigs {
+        create("release") {
+            storeFile = signingProperties.getProperty("storeFile")?.let { rootProject.file(it) }
+            storePassword = signingProperties.getProperty("storePassword")
+            keyAlias = signingProperties.getProperty("keyAlias")
+            keyPassword = signingProperties.getProperty("keyPassword")
+            storeType = "PKCS12"
+        }
     }
 
     buildTypes {
@@ -49,20 +64,7 @@ android {
                 "proguard-rules.pro",
             )
 
-            val shouldSign = project.findProperty("android.releaseSigning") == "true"
-            if (shouldSign) {
-                signingConfigs {
-                    create("release") {
-                        storeFile = file(System.getenv("SIGNING_KEYSTORE_PATH"))
-                        storePassword = System.getenv("SIGNING_STORE_PASSWORD")
-                        keyAlias = System.getenv("SIGNING_KEY_ALIAS")
-                        keyPassword = System.getenv("SIGNING_KEY_PASSWORD")
-                    }
-                }
-                signingConfig = signingConfigs.getByName("release")
-            } else {
-                signingConfig = signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 
@@ -103,4 +105,19 @@ dependencies {
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.androidx.navigation3.ui)
     debugImplementation(libs.androidx.ui.tooling)
+}
+
+tasks.register<Copy>("prepareKchatDist") {
+    group = "distribution"
+    description = "Build and copy the signed release APK to build/dist/kchat."
+    dependsOn("assembleRelease")
+
+    val apk = layout.buildDirectory.file("outputs/apk/release/android-release.apk")
+    doFirst {
+        check(apk.get().asFile.isFile) { "Release APK not found: ${apk.get().asFile}" }
+    }
+    from(apk) {
+        rename { "kio-chat.apk" }
+    }
+    into(layout.buildDirectory.dir("dist/kchat"))
 }

@@ -16,6 +16,7 @@ data class ChatUserEntity(
     val passwordHash: PgText,
     @SerialName("create_at")
     val createAt: PgTimestampTz,
+    @SerialName("nickname") val nickname: PgText,
 )
 
 @Serializable
@@ -59,7 +60,7 @@ data class ChatRoomEntity(
 @Serializable
 data class ChatRoomMemberEntity(
     @SerialName("id") val userId: PgInt8,
-    @SerialName("username") val username: PgText,
+    @SerialName("nickname") val nickname: PgText,
     @SerialName("role") val role: PgText,
 )
 
@@ -77,7 +78,7 @@ data class ChatRoomJoinRequestWithUserEntity(
     @SerialName("room_id") val roomId: PgInt8,
     @SerialName("room_name") val roomName: PgText,
     @SerialName("user_id") val userId: PgInt8,
-    @SerialName("username") val username: PgText,
+    @SerialName("nickname") val nickname: PgText,
     @SerialName("create_at") val createAt: PgTimestampTz,
 )
 

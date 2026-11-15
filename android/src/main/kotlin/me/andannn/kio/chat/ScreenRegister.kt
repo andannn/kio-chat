@@ -54,6 +54,7 @@ private fun retainRegisterState(
 
 sealed interface RegisterUiEvent {
     data class OnUserNameChanged(val value: String) : RegisterUiEvent
+    data class OnNicknameChanged(val value: String) : RegisterUiEvent
     data class OnUserPasswordChanged(val value: String) : RegisterUiEvent
     data class OnConfirmPasswordChanged(val value: String) : RegisterUiEvent
     data object OnBackClick : RegisterUiEvent
@@ -63,6 +64,7 @@ sealed interface RegisterUiEvent {
 @Stable
 private data class RegisterLayoutState(
     val username: String,
+    val nickname: String,
     val password: String,
     val confirmPassword: String,
     val isSubmitting: Boolean,
@@ -78,18 +80,20 @@ private class RegisterLayoutPresenter(
     @Composable
     override fun present(): RegisterLayoutState {
         var username by rememberSaveable { mutableStateOf("") }
+        var nickname by rememberSaveable { mutableStateOf("") }
         var password by rememberSaveable { mutableStateOf("") }
 
         var confirmPassword by rememberSaveable { mutableStateOf("") }
         var isSubmitting by remember { mutableStateOf(false) }
 
         context(navigator, snackBarController) {
-            return RegisterLayoutState(username, password, confirmPassword, isSubmitting) { event ->
+            return RegisterLayoutState(username, nickname, password, confirmPassword, isSubmitting) { event ->
                 when (event) {
                     is RegisterUiEvent.OnUserNameChanged -> {
                         username = event.value
                     }
 
+                    is RegisterUiEvent.OnNicknameChanged -> nickname = event.value
                     is RegisterUiEvent.OnUserPasswordChanged -> {
                         password = event.value
                     }
@@ -99,11 +103,12 @@ private class RegisterLayoutPresenter(
                     RegisterUiEvent.OnRegisterClick -> {
                         if (!isSubmitting) {
                             val name = username
+                            val displayName = nickname
                             val secret = password
                             val confirmation = confirmPassword
                             retainedScope.launch {
                                 isSubmitting = true
-                                val (_, error) = service.register(name, secret, confirmation)
+                                val (_, error) = service.register(name, secret, confirmation, displayName)
                                 isSubmitting = false
                                 if (error != null) {
                                     handleError(error = error)
@@ -129,6 +134,8 @@ private fun Register(
     val state = presenter.present()
     RegisterContent(
         username = state.username,
+        nickname = state.nickname,
+        onNicknameChanged = { state.eventSink(RegisterUiEvent.OnNicknameChanged(it)) },
         password = state.password,
         confirmPassword = state.confirmPassword,
         isSubmitting = state.isSubmitting,
@@ -151,12 +158,14 @@ private fun Register(
 @Composable
 private fun RegisterContent(
     username: String,
+    nickname: String,
     password: String,
     confirmPassword: String,
     modifier: Modifier = Modifier,
     isSubmitting: Boolean = false,
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
     onUserNameChanged: (String) -> Unit = {},
+    onNicknameChanged: (String) -> Unit = {},
     onPasswordChanged: (String) -> Unit = {},
     onBack: () -> Unit = {},
     onConfirmPasswordChanged: (String) -> Unit = {},
@@ -206,7 +215,16 @@ private fun RegisterContent(
                             value = username,
                             onValueChange = { onUserNameChanged(it) },
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("用户名") },
+                            label = { Text("登录账号") },
+                            supportingText = { Text("仅支持 ASCII 字符，不含空格") },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Next),
+                        )
+                        OutlinedTextField(
+                            value = nickname,
+                            onValueChange = onNicknameChanged,
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("昵称") },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                         )
@@ -256,6 +274,6 @@ private fun RegisterContent(
 @Composable
 private fun RegisterPreview() {
     KioChatTheme(dynamicColor = false) {
-        RegisterContent("用户名", "密码", "密码")
+        RegisterContent("demo", "小明", "密码", "密码")
     }
 }

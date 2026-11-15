@@ -2,6 +2,7 @@ package kio.chat.page
 
 import kio.http.CallContext
 import kio.http.respondHtml
+import kio.chat.util.Config
 import kio.chat.util.hxPost
 import kio.chat.util.hxSwap
 import kio.chat.util.hxTarget
@@ -38,7 +39,7 @@ fun TagConsumer<*>.chatLogin() {
                 div(classes = "login-field") {
                     label {
                         htmlFor = "username"
-                        +"用户名"
+                        +"登录账号"
                     }
 
                     input(
@@ -48,6 +49,8 @@ fun TagConsumer<*>.chatLogin() {
                     ) {
                         id = "username"
                         autoComplete = "username"
+                        attributes["pattern"] = "[!-~]+"
+                        attributes["title"] = "请使用 ASCII 字符，不含空格"
                         autoFocus = true
                         required = true
                     }
@@ -80,6 +83,13 @@ fun TagConsumer<*>.chatLogin() {
                 ) {
                     +"登录"
                 }
+            }
+        }
+
+        p(classes = "auth-footer") {
+            a(href = Config.ANDROID_APK_URL) {
+                attributes["download"] = "kio-chat.apk"
+                +"下载 Android 版"
             }
         }
 

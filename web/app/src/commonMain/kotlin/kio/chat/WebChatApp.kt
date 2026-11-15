@@ -6,12 +6,14 @@ import kio.async.io.getEnv
 import kio.chat.domain.MockRepositoryImpl
 import kio.chat.domain.Repository
 import kio.chat.page.chatMainPage
+import kio.chat.util.Config
 import kio.chat.util.Env
 import kio.http.*
 import kio.postgres.conn.PgConnectionPool
 import kio.postgres.conn.openPgConnection
 import kio.tls.pem
 import kio.tls.withServerTls
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.withContext
 import kotlin.uuid.Uuid
@@ -29,11 +31,29 @@ suspend fun CoroutineScope.chatApp(serverSocket: ServerSocket) {
             ) {
                 chatLoginRoutes()
 
+                get("/app/version") { call ->
+                    call.respondText(
+                        Json.encodeToString(Config.ANDROID_APP_VERSION),
+                        contentType = ContentType.Application.Json,
+                        configHeaders = { append(HttpHeaders.CacheControl, "no-store") },
+                    )
+                }
+
                 inject(AuthSession()) {
                     get("/") { call -> call.chatMainPage() }
                     roomRoute()
                     websocket("/events") { c -> c.handleObserveUserEvent() }
                 }
+
+                staticResource(
+                    remotePath = "/downloads",
+                    basePackage = Config.APK_DOWNLOAD_DIRECTORY,
+                    index = null,
+                    configHeaders = {
+                        append(HttpHeaders.CacheControl, "no-cache")
+                        append(HttpHeaders.ContentDisposition, "attachment; filename=\"kio-chat.apk\"")
+                    },
+                )
 
                 staticResource(
                     remotePath = "/",

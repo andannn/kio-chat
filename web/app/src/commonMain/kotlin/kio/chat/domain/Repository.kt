@@ -53,7 +53,7 @@ interface Repository {
     fun CoroutineScope.startWatchingMessageEvent(): Job
     suspend fun findUserByUsername(userName: String): User?
     suspend fun verifyPassword(user: User, password: String): Boolean
-    suspend fun createUser(userName: String, password: String): User?
+    suspend fun createUser(userName: String, password: String, nickname: String = userName): User?
     suspend fun createSession(userId: Long): String
     suspend fun deleteSession(sessionId: String)
     suspend fun getSessionById(sessionId: String): Session?
@@ -177,8 +177,8 @@ private class ServerRepositoryImpl(
     override suspend fun verifyPassword(user: User, password: String): Boolean =
         hashPassword(password) == user.passwordHash
 
-    override suspend fun createUser(userName: String, password: String): User? =
-        pgPool.useConnection { it.createUser(userName, hashPassword(password)) }?.toUser()
+    override suspend fun createUser(userName: String, password: String, nickname: String): User? =
+        pgPool.useConnection { it.createUser(userName, hashPassword(password), nickname) }?.toUser()
 
     override suspend fun createSession(userId: Long): String {
         val sessionId = Uuid.random().toString()
@@ -332,14 +332,14 @@ private sealed interface MessageEvent {
     ) : MessageEvent
 }
 
-private fun ChatUserEntity.toUser() = User(id, username, passwordHash)
-private fun ChatMessageWithUserEntity.toMessage() = Message(id, User(userId, username, passwordHash), text, username)
+private fun ChatUserEntity.toUser() = User(id, username, passwordHash, nickname)
+private fun ChatMessageWithUserEntity.toMessage() = Message(id, User(userId, username, passwordHash, nickname), text, nickname)
 
 private fun ChatRoomEntity.toRoom() = Room(id, name)
 
 private fun ChatRoomMemberEntity.toRoomMember() = RoomMember(
     userId = userId,
-    username = username,
+    nickname = nickname,
     role = when (role) {
         "owner" -> RoomRole.Owner
         "member" -> RoomRole.Member
@@ -347,4 +347,4 @@ private fun ChatRoomMemberEntity.toRoomMember() = RoomMember(
     },
 )
 
-private fun ChatRoomJoinRequestWithUserEntity.toRoomJoinRequest() = RoomJoinRequest(id, roomId, roomName, userId, username)
+private fun ChatRoomJoinRequestWithUserEntity.toRoomJoinRequest() = RoomJoinRequest(id, roomId, roomName, userId, nickname)

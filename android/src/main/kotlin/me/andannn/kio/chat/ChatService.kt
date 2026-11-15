@@ -36,6 +36,7 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.client.call.body
 import io.ktor.client.request.parameter
 import kio.chat.domain.Room
+import kio.chat.domain.AppVersion
 import kio.chat.domain.UserEvent
 import kio.chat.domain.RoomMembersPage
 import kio.chat.domain.MessagePage
@@ -55,7 +56,7 @@ sealed interface ApiError {
 }
 
 interface ChatService {
-    suspend fun register(userName: String, password: String, confirmPassword: String): ApiResult<Unit>
+    suspend fun register(userName: String, password: String, confirmPassword: String, nickname: String): ApiResult<Unit>
     suspend fun login(userName: String, password: String): ApiResult<Unit>
     suspend fun sendMessage(roomId: Long, content: String): ApiResult<Unit>
     suspend fun updateMessage(roomId: Long, messageId: Long, content: String): ApiResult<Unit>
@@ -70,6 +71,7 @@ interface ChatService {
     suspend fun approveRoomJoinRequest(requestId: Long): ApiResult<Unit>
     suspend fun rejectRoomJoinRequest(requestId: Long): ApiResult<Unit>
     suspend fun observeUserEvents(onEvent: suspend (UserEvent) -> Unit): ApiError?
+    suspend fun getAppVersion(): ApiResult<AppVersion>
     suspend fun checkLogin(): ApiResult<Unit>
 }
 
@@ -133,13 +135,14 @@ class ChatServiceImpl : ChatService {
             }
         }
 
-    override suspend fun register(userName: String, password: String, confirmPassword: String): ApiResult<Unit> = tryGetResult {
+    override suspend fun register(userName: String, password: String, confirmPassword: String, nickname: String): ApiResult<Unit> = tryGetResult {
         httpClient.submitForm(
             url = "/register",
             formParameters = Parameters.build {
                 append("username", userName)
                 append("password", password)
                 append("confirmPassword", confirmPassword)
+                append("nickname", nickname)
             },
         ) {
             contentType(ContentType.Application.FormUrlEncoded)
@@ -244,6 +247,12 @@ class ChatServiceImpl : ChatService {
             }
         }
     }.error
+
+    override suspend fun getAppVersion(): ApiResult<AppVersion> = tryGetResult {
+        httpClient.get("/app/version") {
+            headers.append(HttpHeaders.CacheControl, "no-cache")
+        }.body<AppVersion>()
+    }
 
     override suspend fun checkLogin(): ApiResult<Unit> = tryGetResult {
         httpClient.get("/")

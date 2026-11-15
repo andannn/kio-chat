@@ -122,7 +122,7 @@ internal fun MessageItem(
         ) {
             if (!isMine) {
                 Text(
-                    text = message.username,
+                    text = message.nickname,
                     modifier = Modifier.padding(horizontal = 12.dp),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

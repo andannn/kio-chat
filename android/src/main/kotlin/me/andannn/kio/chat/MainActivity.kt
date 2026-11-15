@@ -4,6 +4,12 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.window.DialogProperties
+import kio.chat.domain.AppVersion
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -23,10 +29,25 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
 
         var initialScreen by mutableStateOf<Screen?>(null)
+        var requiredVersion by mutableStateOf<AppVersion?>(null)
 
         lifecycleScope.launch {
+            val service = getKoin().get<ChatService>()
             while (true) {
-                val (_, error) = getKoin().get<ChatService>().checkLogin()
+                val (version, error) = service.getAppVersion()
+                if (error != null || version == null) {
+                    delay(10.seconds)
+                    continue
+                }
+                if (BuildConfig.VERSION_CODE < version.versionCode) {
+                    requiredVersion = version
+                    return@launch
+                }
+                break
+            }
+
+            while (true) {
+                val (_, error) = service.checkLogin()
                 if (error == null) {
                     initialScreen = Screen.Home
                     break
@@ -40,12 +61,32 @@ class MainActivity : ComponentActivity() {
         }
 
         splashScreen.setKeepOnScreenCondition {
-            initialScreen == null
+            initialScreen == null && requiredVersion == null
         }
 
         setContent {
             KioChatTheme {
                 initialScreen?.let { ChatApp(it) }
+
+                requiredVersion?.let { version ->
+                    val uriHandler = LocalUriHandler.current
+                    AlertDialog(
+                        onDismissRequest = {},
+                        properties = DialogProperties(
+                            dismissOnBackPress = false,
+                            dismissOnClickOutside = false,
+                        ),
+                        title = { Text("请更新后继续使用") },
+                        text = {
+                            Text("当前版本：${BuildConfig.VERSION_NAME}\n最新版本：${version.versionName}")
+                        },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                uriHandler.openUri("https://133.117.75.202:7879/downloads/kio-chat.apk")
+                            }) { Text("下载更新") }
+                        },
+                    )
+                }
             }
         }
     }

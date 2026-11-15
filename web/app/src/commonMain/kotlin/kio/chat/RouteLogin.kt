@@ -30,9 +30,15 @@ private suspend fun CallContext.handleRegister() {
     val username = params["username"]
     val password = params["password"]
     val confirmPw = params["confirmPassword"]
+    val nickname = params["nickname"]?.trim()
 
-    if (username.isNullOrEmpty() || password.isNullOrEmpty() || confirmPw.isNullOrEmpty()) {
+    if (username.isNullOrEmpty() || password.isNullOrEmpty() || confirmPw.isNullOrEmpty() || nickname.isNullOrEmpty()) {
         respondError("请填写所有信息。")
+        return
+    }
+
+    if (!username.all { it in '!'..'~' }) {
+        respondError("登录账号只能使用 ASCII 字符，不能包含空格。")
         return
     }
 
@@ -41,9 +47,9 @@ private suspend fun CallContext.handleRegister() {
         return
     }
 
-    val user = repo.createUser(username, password)
+    val user = repo.createUser(username, password, nickname)
     if (user == null) {
-        respondError("该用户名已被使用。")
+        respondError("该登录账号已被使用。")
         return
     }
 
@@ -68,14 +74,19 @@ private suspend fun CallContext.handleLogin() {
     val password = params["password"]
 
     if (username.isNullOrBlank() || password.isNullOrBlank()) {
-        respondError("请输入用户名和密码。")
+        respondError("请输入登录账号和密码。")
+        return
+    }
+
+    if (!username.all { it in '!'..'~' }) {
+        respondError("登录账号只能使用 ASCII 字符，不能包含空格。")
         return
     }
 
     val user = repo.findUserByUsername(username)
 
     if (user == null || !repo.verifyPassword(user, password)) {
-        respondError("用户名或密码错误。")
+        respondError("登录账号或密码错误。")
         return
     }
 

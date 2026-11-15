@@ -122,7 +122,7 @@ fun RoomListItemContent(
             },
             supportingContent = {
                 Text(
-                    text = previewMessage?.let { "${it.username}：${it.text}" } ?: "还没有消息",
+                    text = previewMessage?.let { "${it.nickname}：${it.text}" } ?: "还没有消息",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,

@@ -19,3 +19,7 @@ captures
 node_modules/
 /data/uploads
 deploy.sh
+
+# Local Android release signing
+/keystore.properties
+/android/keystore/

@@ -16,20 +16,22 @@ import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
-suspend fun PgConnection.createUser(userName: String, passwordHash: String): ChatUserEntity? {
+suspend fun PgConnection.createUser(userName: String, passwordHash: String, nickname: String = userName): ChatUserEntity? {
     val ret: Flow<ChatUserEntity> = query(
         """
         INSERT INTO users (
             username,
-            password_hash
+            password_hash,
+            nickname
         )
-        VALUES ($1, $2)
+        VALUES ($1, $2, $3)
         ON CONFLICT (username) DO NOTHING
-        RETURNING id, username, password_hash, create_at
+        RETURNING id, username, password_hash, create_at, nickname
         """.trimIndent()
     ) {
         param(userName, PostgresTextSerializer)
         param(passwordHash, PostgresTextSerializer)
+        param(nickname, PostgresTextSerializer)
     }
     return ret.firstOrNull()
 }
@@ -78,7 +80,7 @@ suspend fun PgConnection.getUserIdBySessionId(sessionId: String): Long? {
 suspend fun PgConnection.getUserByUsername(userName: String): ChatUserEntity? {
     val ret: Flow<ChatUserEntity> = query(
         """
-        SELECT *
+        SELECT id, username, password_hash, create_at, nickname
         FROM users
         WHERE username = $1
         LIMIT 1
@@ -120,6 +122,7 @@ data class ChatMessageWithUserEntity(
     val username: PgText,
     @SerialName("password_hash")
     val passwordHash: PgText,
+    @SerialName("nickname") val nickname: PgText,
 )
 
 suspend fun PgConnection.getMessageList(beforeId: Long?, limit: Int, roomId: Long = 1): List<ChatMessageWithUserEntity> {
@@ -128,7 +131,7 @@ suspend fun PgConnection.getMessageList(beforeId: Long?, limit: Int, roomId: Lon
 
     return query<ChatMessageWithUserEntity>(
         """
-        SELECT m.id, m.room_id, m.user_id, m.text, m.create_at, u.username, u.password_hash
+        SELECT m.id, m.room_id, m.user_id, m.text, m.create_at, u.username, u.password_hash, u.nickname
         FROM messages m
         JOIN users u ON u.id = m.user_id
         WHERE m.room_id = $1 $whereClause
@@ -143,7 +146,7 @@ suspend fun PgConnection.getMessageList(beforeId: Long?, limit: Int, roomId: Lon
 suspend fun PgConnection.getMessageById(messageId: Long): ChatMessageWithUserEntity? =
     query<ChatMessageWithUserEntity>(
         """
-        SELECT m.id, m.room_id, m.user_id, m.text, m.create_at, u.username, u.password_hash
+        SELECT m.id, m.room_id, m.user_id, m.text, m.create_at, u.username, u.password_hash, u.nickname
         FROM messages m
         JOIN users u ON u.id = m.user_id
         WHERE m.id = $1
@@ -262,7 +265,7 @@ suspend fun PgConnection.isRoomMember(roomId: Long, userId: Long): Boolean {
 suspend fun PgConnection.getRoomMembers(roomId: Long): List<ChatRoomMemberEntity> =
     query<ChatRoomMemberEntity>(
         """
-        SELECT u.id, u.username, rm.role
+        SELECT u.id, u.nickname, rm.role
         FROM room_members rm
         JOIN users u ON u.id = rm.user_id
         WHERE rm.room_id = $1
@@ -275,7 +278,7 @@ suspend fun PgConnection.getRoomMembers(roomId: Long): List<ChatRoomMemberEntity
 suspend fun PgConnection.getRoomOwners(roomId: Long): List<ChatRoomMemberEntity> =
     query<ChatRoomMemberEntity>(
         """
-        SELECT u.id, u.username, rm.role
+        SELECT u.id, u.nickname, rm.role
         FROM room_members rm
         JOIN users u ON u.id = rm.user_id
         WHERE rm.room_id = $1 AND rm.role = 'owner'
@@ -329,7 +332,7 @@ suspend fun PgConnection.createRoomJoinRequest(roomId: Long, userId: Long): Pair
 suspend fun PgConnection.getRoomJoinRequests(ownerId: Long): List<ChatRoomJoinRequestWithUserEntity> =
     query<ChatRoomJoinRequestWithUserEntity>(
         """
-        SELECT jr.id, jr.room_id, r.name AS room_name, jr.user_id, u.username, jr.create_at
+        SELECT jr.id, jr.room_id, r.name AS room_name, jr.user_id, u.nickname, jr.create_at
         FROM room_join_requests jr
         JOIN rooms r ON r.id = jr.room_id
         JOIN users u ON u.id = jr.user_id
@@ -383,7 +386,7 @@ suspend fun PgConnection.rejectRoomJoinRequest(requestId: Long, ownerId: Long): 
 suspend fun PgConnection.getRoomJoinRequestById(requestId: Long): ChatRoomJoinRequestWithUserEntity? =
     query<ChatRoomJoinRequestWithUserEntity>(
         """
-        SELECT jr.id, jr.room_id, r.name AS room_name, jr.user_id, u.username, jr.create_at
+        SELECT jr.id, jr.room_id, r.name AS room_name, jr.user_id, u.nickname, jr.create_at
         FROM room_join_requests jr
         JOIN rooms r ON r.id = jr.room_id
         JOIN users u ON u.id = jr.user_id

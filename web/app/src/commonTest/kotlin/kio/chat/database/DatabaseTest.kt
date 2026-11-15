@@ -192,7 +192,7 @@ abstract class DatabaseTest {
         val request = assertIs<ChatRoomJoinRequestEntity>(created)
         assertEquals(null to CreateRoomJoinRequestError.RequestAlreadyExist, createRoomJoinRequest(room.id, applicant.id))
         assertTrue(getRoomJoinRequests(other.id).isEmpty())
-        assertEquals(applicant.username, getRoomJoinRequests(owner.id).single().username)
+        assertEquals(applicant.username, getRoomJoinRequests(owner.id).single().nickname)
         assertFalse(approveRoomJoinRequest(request.id, other.id))
         assertFalse(rejectRoomJoinRequest(request.id, applicant.id))
         assertTrue(approveRoomJoinRequest(request.id, owner.id))
@@ -226,7 +226,7 @@ abstract class DatabaseTest {
         val pending = getRoomJoinRequests(owner.id)
         assertEquals(listOf(firstRoom.id, secondRoom.id), pending.map { it.roomId })
         assertEquals(listOf(firstRoom.name, secondRoom.name), pending.map { it.roomName })
-        assertTrue(pending.all { it.userId == applicant.id && it.username == applicant.username })
+        assertTrue(pending.all { it.userId == applicant.id && it.nickname == applicant.nickname })
         assertEquals(listOf(secondRoom.id), getRoomJoinRequests(otherOwner.id).map { it.roomId })
         assertTrue(getRoomJoinRequests(applicant.id).isEmpty())
     }
@@ -252,7 +252,7 @@ abstract class DatabaseTest {
         assertNotification("INSERT", rejected.id)
         val request = getRoomJoinRequestById(rejected.id)!!
         assertEquals(room.name, request.roomName)
-        assertEquals(applicant.username, request.username)
+        assertEquals(applicant.username, request.nickname)
         assertTrue(rejectRoomJoinRequest(rejected.id, owner.id))
         assertNotification("DELETE", rejected.id)
         assertNull(getRoomJoinRequestById(rejected.id))

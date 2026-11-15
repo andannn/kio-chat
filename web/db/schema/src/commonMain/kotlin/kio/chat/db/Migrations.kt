@@ -15,6 +15,7 @@ val migrations
         migration9,
         migration10,
         migration11,
+        migration12,
     )
 
 // Test cleanup, matching kio-note. Use only with a dedicated test database.
@@ -312,5 +313,15 @@ ALTER TABLE messages
     DROP CONSTRAINT messages_room_id_fkey,
     ADD CONSTRAINT messages_room_id_fkey
         FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE;
+        """.trimIndent()
+)
+
+private val migration12 = Migration(
+    version = 12,
+    name = "add user nickname",
+    sql = """
+ALTER TABLE users ADD COLUMN nickname TEXT;
+UPDATE users SET nickname = username;
+ALTER TABLE users ALTER COLUMN nickname SET NOT NULL;
         """.trimIndent()
 )

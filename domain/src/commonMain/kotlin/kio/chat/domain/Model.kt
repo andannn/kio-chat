@@ -9,6 +9,7 @@ data class User(
     @SerialName("id") val id: Long,
     @SerialName("username") val username: String,
     @SerialName("passwordHash") val passwordHash: String,
+    @SerialName("nickname") val nickname: String = username,
 )
 
 @Serializable
@@ -23,7 +24,7 @@ data class Message(
     @SerialName("id") val id: Long,
     @SerialName("user") val user: User,
     @SerialName("text") val text: String,
-    @SerialName("username") val username: String,
+    @SerialName("nickname") val nickname: String,
 )
 
 @Serializable
@@ -108,7 +109,7 @@ data class Room(
 @Serializable
 data class RoomMember(
     @SerialName("id") val userId: Long,
-    @SerialName("username") val username: String,
+    @SerialName("nickname") val nickname: String,
     @SerialName("role") val role: RoomRole = RoomRole.Member,
 )
 
@@ -126,11 +127,17 @@ data class RoomJoinRequest(
     @SerialName("roomId") val roomId: Long,
     @SerialName("roomName") val roomName: String,
     @SerialName("userId") val userId: Long,
-    @SerialName("username") val username: String,
+    @SerialName("nickname") val nickname: String,
 )
 
 @Serializable
 data class RoomMembersPage(
     @SerialName("userId") val userId: Long,
     @SerialName("members") val members: List<RoomMember>,
+)
+
+@Serializable
+data class AppVersion(
+    @SerialName("versionCode") val versionCode: Int,
+    @SerialName("versionName") val versionName: String,
 )

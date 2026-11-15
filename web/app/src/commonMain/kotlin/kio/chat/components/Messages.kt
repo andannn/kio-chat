@@ -10,7 +10,7 @@ private fun ARTICLE.messageItem(message: Message, isMine: Boolean, roomId: Long)
     attributes["data-mine"] = isMine.toString()
     attributes["data-chat-room-id"] = roomId.toString()
     p {
-        strong { +"${message.username}: " }
+        strong { +"${message.nickname}: " }
         +message.text
     }
     if (isMine) {

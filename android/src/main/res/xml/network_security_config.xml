@@ -1,6 +1,6 @@
 <network-security-config>
     <domain-config>
-        <domain>133.117.75.202</domain>
+        <domain includeSubdomains="false">133.117.75.202</domain>
         <trust-anchors>
             <certificates src="@raw/private_ca" />
         </trust-anchors>

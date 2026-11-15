@@ -37,7 +37,7 @@ fun TagConsumer<*>.chatRegister() {
                 div(classes = "login-field") {
                     label {
                         htmlFor = "register-username"
-                        +"用户名"
+                        +"登录账号"
                     }
                     input(
                         type = InputType.text,
@@ -46,10 +46,24 @@ fun TagConsumer<*>.chatRegister() {
                     ) {
                         id = "register-username"
                         autoComplete = "username"
+                        attributes["pattern"] = "[!-~]+"
+                        attributes["title"] = "请使用 ASCII 字符，不含空格"
                         autoFocus = true
                         required = true
                         attributes["autocapitalize"] = "none"
                         attributes["spellcheck"] = "false"
+                    }
+                }
+
+                div(classes = "login-field") {
+                    label {
+                        htmlFor = "register-nickname"
+                        +"昵称"
+                    }
+                    input(type = InputType.text, name = "nickname", classes = "login-input") {
+                        id = "register-nickname"
+                        autoComplete = "nickname"
+                        required = true
                     }
                 }
 

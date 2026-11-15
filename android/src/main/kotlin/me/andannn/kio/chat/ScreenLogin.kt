@@ -186,9 +186,9 @@ private fun LoginContent(
                             value = username,
                             onValueChange = { onUserNameChanged(it) },
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("用户名") },
+                            label = { Text("登录账号") },
                             singleLine = true,
-                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Next),
                         )
                         OutlinedTextField(
                             value = password,
@@ -224,6 +224,6 @@ private fun LoginContent(
 @Composable
 private fun LoginPreview() {
     KioChatTheme(dynamicColor = false) {
-        LoginContent("用户名", "密码")
+        LoginContent("demo", "密码")
     }
 }
