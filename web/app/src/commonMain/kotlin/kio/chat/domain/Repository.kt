@@ -41,7 +41,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.serialization.json.Json
@@ -76,16 +78,25 @@ interface Repository {
     suspend fun updateMessage(userId: Long, messageId: Long, text: String, roomId: Long): Boolean
     suspend fun deleteMessage(userId: Long, messageId: Long, roomId: Long): Boolean
     suspend fun getMessageList(beforeId: Long? = null, limit: Int = 50, roomId: Long): List<Message>
+    // Callers must obtain senderUserId from the authenticated session.
+    suspend fun publishRoomEvent(event: RoomEvent)
+    fun observeUserVoiceEvent(userId: Long): Flow<RoomEvent>
+    suspend fun waitVoiceJoinEventInRoom(roomId: Long): RoomEvent
+    suspend fun waitRTCAnswerFromUser(roomId: Long, myId: Long, userId: Long): RoomEvent
+    suspend fun waitRTCOfferToUser(roomId: Long, userId: Long): RoomEvent
+    suspend fun waitRTCCandidateToUser(roomId: Long, userId: Long): RoomEvent
 }
 
 fun Repository(pgPool: PgConnectionPool): Repository = ServerRepositoryImpl(pgPool)
+
+private val notificationJson = Json { ignoreUnknownKeys = true }
 
 private class ServerRepositoryImpl(
     private val pgPool: PgConnectionPool,
 ) : Repository {
 
-    private val messageEventFlow = MutableSharedFlow<MessageEvent>(extraBufferCapacity = 64)
-    private val notificationJson = Json { ignoreUnknownKeys = true }
+    private val dbMessageEventFlow = MutableSharedFlow<MessageEvent>(extraBufferCapacity = 64)
+    private val roomEventFlow = MutableSharedFlow<RoomEvent>(extraBufferCapacity = 64)
 
     override fun CoroutineScope.startWatchingMessageEvent() = launch {
         pgPool.useConnection { c ->
@@ -115,7 +126,7 @@ private class ServerRepositoryImpl(
 
                             else -> continue
                         }
-                        messageEventFlow.emit(MessageEvent.ChatMessageEvent(chatEvent))
+                        dbMessageEventFlow.emit(MessageEvent.ChatMessageEvent(chatEvent))
                     }
 
                     "rooms" -> {
@@ -124,7 +135,7 @@ private class ServerRepositoryImpl(
                         val room = pgPool.useConnection { it.getRoomById(event.roomId) } ?: continue
                         val members = pgPool.useConnection { it.getRoomMembers(event.roomId) }
                         for ((userId) in members) {
-                            messageEventFlow.emit(MessageEvent.RoomsMessage(userId, RoomListEvent.Changed(room.toRoom())))
+                            dbMessageEventFlow.emit(MessageEvent.RoomsMessage(userId, RoomListEvent.Changed(room.toRoom())))
                         }
                     }
 
@@ -142,7 +153,7 @@ private class ServerRepositoryImpl(
 
                             else -> continue
                         }
-                        messageEventFlow.emit(MessageEvent.RoomsMessage(event.userId, roomEvent))
+                        dbMessageEventFlow.emit(MessageEvent.RoomsMessage(event.userId, roomEvent))
                     }
 
                     "room_join_requests" -> {
@@ -163,7 +174,7 @@ private class ServerRepositoryImpl(
 
                         val owners = pgPool.useConnection { it.getRoomOwners(event.requestRoomId) }
                         for ((userId) in owners) {
-                            messageEventFlow.emit(MessageEvent.RoomJoinRequestMessageEvent(userId, joinReqEvent))
+                            dbMessageEventFlow.emit(MessageEvent.RoomJoinRequestMessageEvent(userId, joinReqEvent))
                         }
                     }
                 }
@@ -233,7 +244,7 @@ private class ServerRepositoryImpl(
 
     override fun observeRoomJoinRequestEvent(userId: Long): Flow<RoomJoinRequestEvent> = flow {
         val ids = mutableSetOf<Long>()
-        messageEventFlow
+        dbMessageEventFlow
             .onSubscription {
                 val requests = getRoomJoinRequests(userId)
                 ids.addAll(requests.map { it.id })
@@ -252,7 +263,7 @@ private class ServerRepositoryImpl(
 
     override fun observeRoomAndChatMessageEventByUser(userId: Long): Flow<UserEvent> = flow {
         val roomIds = mutableSetOf<Long>()
-        messageEventFlow
+        dbMessageEventFlow
             .onSubscription {
                 val requests = getRoomList(userId)
                 roomIds.addAll(requests.map { it.id })
@@ -314,7 +325,42 @@ private class ServerRepositoryImpl(
             .map { it.toMessage() }
             .asReversed()
     }
+
+    override suspend fun publishRoomEvent(event: RoomEvent) {
+        roomEventFlow.emit(event)
+    }
+
+    override fun observeUserVoiceEvent(userId: Long): Flow<RoomEvent> =
+        roomEventFlow.filter { it.senderUserId == userId && it.message is RoomMessage.Voice }
+
+    override suspend fun waitVoiceJoinEventInRoom(roomId: Long): RoomEvent =
+        roomEventFlow.first { it.message is RoomMessage.VoiceJoin && it.roomId == roomId }
+
+    override suspend fun waitRTCAnswerFromUser(roomId: Long, myId: Long, userId: Long): RoomEvent =
+        roomEventFlow.first {
+            val message = it.message
+            message is RoomMessage.RTCAnswer && it.roomId == roomId &&
+                message.toUserId == myId && it.senderUserId == userId
+        }
+
+    override suspend fun waitRTCOfferToUser(roomId: Long, userId: Long): RoomEvent =
+        roomEventFlow.first {
+            val message = it.message
+            message is RoomMessage.RTCOffer && it.roomId == roomId && message.toUserId == userId
+        }
+
+    override suspend fun waitRTCCandidateToUser(roomId: Long, userId: Long): RoomEvent =
+        roomEventFlow.first {
+            val message = it.message
+            message is RoomMessage.RTCCandidate && it.roomId == roomId && message.toUserId == userId
+        }
 }
+
+data class RoomEvent(
+    val roomId: Long,
+    val senderUserId: Long,
+    val message: RoomMessage,
+)
 
 private sealed interface MessageEvent {
     data class RoomsMessage(
@@ -333,7 +379,8 @@ private sealed interface MessageEvent {
 }
 
 private fun ChatUserEntity.toUser() = User(id, username, passwordHash, nickname)
-private fun ChatMessageWithUserEntity.toMessage() = Message(id, User(userId, username, passwordHash, nickname), text, nickname)
+private fun ChatMessageWithUserEntity.toMessage() = Message(id,
+    User(userId, username, passwordHash, nickname), text, nickname)
 
 private fun ChatRoomEntity.toRoom() = Room(id, name)
 

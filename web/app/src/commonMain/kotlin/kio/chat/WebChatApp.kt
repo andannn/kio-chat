@@ -59,7 +59,7 @@ suspend fun CoroutineScope.chatApp(serverSocket: ServerSocket) {
                     remotePath = "/",
                     basePackage = "resource",
                     configHeaders = {
-                        append(HttpHeaders.CacheControl, "public, max-age=31536000, immutable")
+//                        append(HttpHeaders.CacheControl, "public, max-age=31536000, immutable")
                     }
                 )
             }

@@ -151,6 +151,13 @@ fun TagConsumer<*>.chatRoomContent(room: Room, isOwner: Boolean = false) {
                     }
                     small { +"房间 ID：${room.id}" }
                 }
+
+                button(type = ButtonType.button, classes = "members-toggle") {
+                    id = "start-mic"
+                    attributes["onclick"] = "startMic()"
+                    +"start-mic"
+                }
+
                 button(type = ButtonType.button, classes = "members-toggle") {
                     attributes["aria-controls"] = "room-members-panel"
                     attributes["aria-expanded"] = "false"

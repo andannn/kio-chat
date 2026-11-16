@@ -1,10 +1,15 @@
 package kio.chat
 
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import kio.async.readString
 import kio.chat.util.respondByContentType
 import kotlinx.serialization.json.Json
 import kio.chat.domain.RoomMembersPage
 import kio.chat.domain.Repository
+import kio.chat.domain.RoomEvent
+import kio.chat.domain.RoomMessage
 import kio.chat.components.roomMemberList
 import kio.chat.components.roomList
 import kio.chat.components.chatRoomContent
@@ -40,10 +45,32 @@ fun Route.roomRoute() {
                 get("content") { call -> call.handleGetRoomContent() }
                 post("name-editing") { call -> call.handleEditRoomName() }
                 post("name-commit") { call -> call.handleCommitRoomName() }
+                post("events") { call -> call.handleRoomEvent() }
                 messagesRoute()
             }
         }
     }
+}
+
+context(repo: Repository)
+private suspend fun CallContext.handleRoomEvent() {
+    val body = requestBody.readString()
+    val message = Json.decodeFromString<RoomMessage>(body)
+
+    val roomId = requireRoomId()
+    if (message is RoomMessage.Signaling && !repo.isRoomMember(roomId, message.toUserId)) {
+        respond(HttpStatusCode.Forbidden, "目标用户不在该聊天室。")
+        return
+    }
+
+    repo.publishRoomEvent(
+        RoomEvent(
+            roomId = roomId,
+            senderUserId = requireSession().userId,
+            message = message,
+        )
+    )
+    respond(HttpStatusCode.NoContent)
 }
 
 suspend fun requireRoomId(): Long {

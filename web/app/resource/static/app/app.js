@@ -60,3 +60,48 @@ function filterUserEventSwap(event) {
         event.detail.shouldSwap = Boolean(incomingId) && BigInt(incomingId) >= BigInt(currentId);
     }
 }
+
+async function startMic() {
+    // const localStream = navigator.mediaDevices.getUserMedia({
+    //     audio: true,
+    //     video: false,
+    // });
+    // console.log("localStream ", localStream);
+
+    const pc = new RTCPeerConnection();
+    console.log("pc", pc);
+    console.log("pc.connectionState", pc.connectionState);
+    console.log("pc.signalingState", pc.signalingState);
+
+    pc.onicecandidate = (ev) => {
+        console.log("onicecandidate", ev);
+    }
+    pc.createDataChannel("test");
+    // pc.onconnectionstatechange = (peerC, env) => {
+    //     console.log("env", env)
+    // }
+
+    const offer = await pc.createOffer();
+    console.log("offer type", offer.type)
+    console.log("offer sdp", offer.sdp)
+
+    await pc.setLocalDescription(offer)
+
+    console.log("localDescription", pc.localDescription)
+
+
+    const pc2 = new RTCPeerConnection();
+    await pc2.setRemoteDescription(pc.localDescription);
+
+    // B 生成并应用 answer
+    const answer = await pc2.createAnswer();
+    console.log("answer", answer.type)
+    console.log("answer", answer.sdp)
+
+    console.log("signalingState before", pc2.signalingState);
+    await pc2.setLocalDescription(answer)
+    console.log("signalingState before", pc2.signalingState);
+
+    await pc.setRemoteDescription(pc2.localDescription)
+    console.log(pc.signalingState);
+}
