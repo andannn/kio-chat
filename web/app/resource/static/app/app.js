@@ -61,12 +61,15 @@ function filterUserEventSwap(event) {
     }
 }
 
-async function postRoomEvent(roomId, message) {
+let voiceConnectionId = null;
+
+async function postRoomEvent(session, message) {
+    const roomId = session.roomId;
     console.log("[voice] HTTP send", roomId, message);
     const response = await fetch(`/rooms/${encodeURIComponent(roomId)}/events`, {
         method: "POST",
         credentials: "same-origin",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Voice-Connection": session.connectionId },
         body: JSON.stringify(message),
     });
     if (!response.ok || response.redirected) {
@@ -83,7 +86,12 @@ async function joinVoice(roomId) {
     if (voiceSession?.roomId === roomId) return;
     if (voiceSession) await exitVoice();
 
+    if (!voiceConnectionId) {
+        window.alert("语音连接尚未就绪，请稍后重试。");
+        return;
+    }
     const session = {
+        connectionId: voiceConnectionId,
         roomId,
         stream: null,
         peers: new Map(),
@@ -97,9 +105,10 @@ async function joinVoice(roomId) {
             session.stream.getTracks().forEach(track => track.stop());
             return;
         }
-        await postRoomEvent(roomId, { type: "user_joined" });
+        await postRoomEvent(session, { type: "user_joined" });
         console.log("[voice] joined", roomId);
     } catch (error) {
+        if (voiceSession === session) window.alert(error.message);
         closeVoiceSession(session);
         console.error("[voice] join failed", error);
     }
@@ -120,7 +129,7 @@ async function exitVoice() {
     if (!session) return;
     closeVoiceSession(session);
     try {
-        await postRoomEvent(session.roomId, { type: "user_exit" });
+        await postRoomEvent(session, { type: "user_exit" });
         console.log("[voice] exited", session.roomId);
     } catch (error) {
         console.error("[voice] exit failed", error);
@@ -148,7 +157,7 @@ function createPeer(session, userId) {
 
     pc.onicecandidate = event => {
         if (!event.candidate || voiceSession !== session) return;
-        postRoomEvent(session.roomId, {
+        postRoomEvent(session, {
             type: "rtc_conn_candidate",
             toUserId: userId,
             candidate: event.candidate.toJSON(),
@@ -184,7 +193,7 @@ async function handleVoiceEvent(roomId, message) {
     switch (message.type) {
         case "on_request_send_offer_to_user":
             await pc.setLocalDescription(await pc.createOffer());
-            await postRoomEvent(roomId, {
+            await postRoomEvent(session, {
                 type: "rtc_conn_offer",
                 toUserId: userId,
                 description: pc.localDescription.toJSON(),
@@ -194,7 +203,7 @@ async function handleVoiceEvent(roomId, message) {
             await pc.setRemoteDescription(message.offerDescription);
             for (const candidate of candidates.splice(0)) await pc.addIceCandidate(candidate);
             await pc.setLocalDescription(await pc.createAnswer());
-            await postRoomEvent(roomId, {
+            await postRoomEvent(session, {
                 type: "rtc_conn_answer",
                 toUserId: userId,
                 description: pc.localDescription.toJSON(),
@@ -218,6 +227,19 @@ const voiceEventTypes = new Set([
     "on_receive_candidate",
 ]);
 
+let voiceSocket = null;
+document.addEventListener("htmx:wsOpen", event => {
+    voiceSocket = event.detail.event.target;
+    voiceConnectionId = null;
+    if (voiceSession) closeVoiceSession(voiceSession);
+});
+document.addEventListener("htmx:wsClose", event => {
+    if (event.detail.event.target !== voiceSocket) return;
+    voiceSocket = null;
+    voiceConnectionId = null;
+    if (voiceSession) closeVoiceSession(voiceSession);
+});
+
 document.addEventListener("htmx:wsBeforeMessage", (event) => {
     const raw = event.detail.message;
     if (typeof raw !== "string" || !raw.trimStart().startsWith("{")) return;
@@ -225,6 +247,11 @@ document.addEventListener("htmx:wsBeforeMessage", (event) => {
     try {
         message = JSON.parse(raw);
     } catch {
+        return;
+    }
+    if (message.type === "voice_connection_ready") {
+        event.preventDefault();
+        voiceConnectionId = message.connectionId;
         return;
     }
     if (!voiceEventTypes.has(message.type)) return;

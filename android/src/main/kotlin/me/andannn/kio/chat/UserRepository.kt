@@ -3,7 +3,7 @@ package me.andannn.kio.chat
 import android.util.Log
 import kio.chat.domain.Message
 import kio.chat.domain.Room
-import kio.chat.domain.RoomVoiceEvent
+import kio.chat.domain.VoiceSignalingEvent
 import kio.chat.domain.RoomJoinRequest
 import kio.chat.domain.RoomJoinRequestEvent
 import kio.chat.domain.RoomListEvent
@@ -41,7 +41,7 @@ class UserRepositoryImpl(
             when (event) {
                 is RoomListEvent -> handleRoomListEvent(event)
                 is RoomJoinRequestEvent -> handleRoomJoinRequestEvent(event)
-                is RoomVoiceEvent -> Unit
+                is VoiceSignalingEvent -> Unit
                 is UserChatEvent -> {
                     handleChatMessageEvent(event)
                     chatEventFlow.emit(event)

@@ -1,15 +1,12 @@
 package kio.chat
 
-import io.ktor.http.ContentType
-import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import kio.async.readString
 import kio.chat.util.respondByContentType
 import kotlinx.serialization.json.Json
 import kio.chat.domain.RoomMembersPage
 import kio.chat.domain.Repository
-import kio.chat.domain.RoomEvent
-import kio.chat.domain.RoomMessage
+import kio.chat.domain.VoiceCallMessage
 import kio.chat.components.roomMemberList
 import kio.chat.components.roomList
 import kio.chat.components.chatRoomContent
@@ -57,32 +54,31 @@ fun Route.roomRoute() {
 context(repo: Repository)
 private suspend fun CallContext.handleRoomEvent() {
     val body = requestBody.readString()
-    val message = Json.decodeFromString<RoomMessage>(body)
+    val message = Json.decodeFromString<VoiceCallMessage>(body)
 
     val roomId = requireRoomId()
     val userId = requireSession().userId
     val eventType = when (message) {
-        RoomMessage.VoiceJoin -> "join"
-        RoomMessage.VoiceLeave -> "leave"
-        is RoomMessage.RTCOffer -> "offer"
-        is RoomMessage.RTCAnswer -> "answer"
-        is RoomMessage.RTCCandidate -> "candidate"
+        VoiceCallMessage.JoinCall -> "join"
+        VoiceCallMessage.LeaveCall -> "leave"
+        is VoiceCallMessage.Offer -> "offer"
+        is VoiceCallMessage.Answer -> "answer"
+        is VoiceCallMessage.IceCandidate -> "candidate"
     }
-    val target = (message as? RoomMessage.Signaling)?.toUserId
+    val target = (message as? VoiceCallMessage.PeerSignal)?.recipientUserId
     currentLogger().info("[voice] HTTP received: room=$roomId from=$userId to=$target type=$eventType")
-    if (message is RoomMessage.Signaling && !repo.isRoomMember(roomId, message.toUserId)) {
+    if (message is VoiceCallMessage.PeerSignal && !repo.isRoomMember(roomId, message.recipientUserId)) {
         currentLogger().info("[voice] HTTP rejected: room=$roomId from=$userId to=$target target is not a room member")
         respond(HttpStatusCode.Forbidden, "目标用户不在该聊天室。")
         return
     }
 
-    repo.publishRoomEvent(
-        RoomEvent(
-            roomId = roomId,
-            senderUserId = userId,
-            message = message,
-        )
-    )
+    val connectionId = requestHeaders["X-Voice-Connection"]
+    if (connectionId == null || !repo.publishVoiceMessage(roomId, userId, connectionId, message)) {
+        respond(HttpStatusCode.Conflict, "语音连接不可用，或此账号已在其他页面通话。")
+        return
+    }
+
     currentLogger().info("[voice] HTTP published: room=$roomId from=$userId to=$target type=$eventType")
     respond(HttpStatusCode.NoContent)
 }

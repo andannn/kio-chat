@@ -5,14 +5,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.launch
 import kotlin.uuid.Uuid
 
-class MockRepositoryImpl : Repository {
+class MockRepositoryImpl : Repository, VoiceSignaling by InMemoryVoiceSignaling() {
     private val users = mutableMapOf<String, User>()
     private val sessions = mutableMapOf<String, Session>()
     private var nextUserId = 1L
@@ -20,7 +18,6 @@ class MockRepositoryImpl : Repository {
     private val rooms = mutableListOf(Room(1, "demo的房间"))
     private val roomMembers = mutableMapOf((1L to 1L) to RoomRole.Owner)
     private val messageEventFlow = MutableSharedFlow<MockMessageEvent>(extraBufferCapacity = 64)
-    private val roomEventFlow = MutableSharedFlow<RoomEvent>(extraBufferCapacity = 64)
     private val joinRequests = mutableListOf<RoomJoinRequest>()
     private val joinRequestFlow = MutableSharedFlow<Pair<Long, RoomJoinRequestEvent>>(extraBufferCapacity = 64)
     private var nextJoinRequestId = 1L
@@ -237,35 +234,6 @@ class MockRepositoryImpl : Repository {
         require(limit > 0) { "limit must be positive" }
         return messages.filter { messageRooms[it.id] == roomId && (beforeId == null || it.id < beforeId) }.takeLast(limit)
     }
-
-    override suspend fun publishRoomEvent(event: RoomEvent) {
-        roomEventFlow.emit(event)
-    }
-
-    override fun observeUserVoiceEvent(userId: Long): Flow<RoomEvent> =
-        roomEventFlow.filter { it.senderUserId == userId && it.message is RoomMessage.Voice }
-
-    override suspend fun waitVoiceJoinEventInRoom(roomId: Long): RoomEvent =
-        roomEventFlow.first { it.message is RoomMessage.VoiceJoin && it.roomId == roomId }
-
-    override suspend fun waitRTCAnswerFromUser(roomId: Long, myId: Long, userId: Long): RoomEvent =
-        roomEventFlow.first {
-            val message = it.message
-            message is RoomMessage.RTCAnswer && it.roomId == roomId &&
-                message.toUserId == myId && it.senderUserId == userId
-        }
-
-    override suspend fun waitRTCOfferToUser(roomId: Long, userId: Long): RoomEvent =
-        roomEventFlow.first {
-            val message = it.message
-            message is RoomMessage.RTCOffer && it.roomId == roomId && message.toUserId == userId
-        }
-
-    override suspend fun waitRTCCandidateToUser(roomId: Long, userId: Long): RoomEvent =
-        roomEventFlow.first {
-            val message = it.message
-            message is RoomMessage.RTCCandidate && it.roomId == roomId && message.toUserId == userId
-        }
 }
 
 private sealed interface MockMessageEvent {

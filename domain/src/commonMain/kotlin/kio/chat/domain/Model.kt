@@ -65,22 +65,26 @@ sealed interface RoomJoinRequestEvent: UserEvent {
 }
 
 @Serializable
-sealed interface RoomVoiceEvent: UserEvent {
+sealed interface VoiceSignalingEvent: UserEvent {
+    @Serializable
+    @SerialName("voice_connection_ready")
+    data class ConnectionReady(val connectionId: String) : VoiceSignalingEvent
+
     @Serializable
     @SerialName("on_request_send_offer_to_user")
-    data class OnRequestSendOfferToUser(val roomId: Long, val userId: Long): RoomVoiceEvent
+    data class OfferRequested(val roomId: Long, @SerialName("userId") val peerUserId: Long): VoiceSignalingEvent
 
     @Serializable
     @SerialName("on_request_send_answer_to_user")
-    data class OnRequestSendAnswerToUser(val roomId: Long, val userId: Long, val offerDescription: RTCSessionDescription): RoomVoiceEvent
+    data class OfferReceived(val roomId: Long, @SerialName("userId") val peerUserId: Long, val offerDescription: RtcSessionDescription): VoiceSignalingEvent
 
     @Serializable
     @SerialName("on_request_save_answer")
-    data class OnRequestSaveAnswer(val roomId: Long, val userId: Long, val answerDescription: RTCSessionDescription): RoomVoiceEvent
+    data class AnswerReceived(val roomId: Long, @SerialName("userId") val peerUserId: Long, val answerDescription: RtcSessionDescription): VoiceSignalingEvent
 
     @Serializable
     @SerialName("on_receive_candidate")
-    data class OnReceiveCandidate(val roomId: Long, val userId: Long, val candidate: RTCIceCandidate): RoomVoiceEvent
+    data class IceCandidateReceived(val roomId: Long, @SerialName("userId") val peerUserId: Long, val candidate: RtcIceCandidate): VoiceSignalingEvent
 }
 
 @Serializable
@@ -173,41 +177,41 @@ data class AppVersion(
     @SerialName("versionName") val versionName: String,
 )
 
-@Serializable(with = RoomMessageSerializer::class)
-sealed interface RoomMessage {
-    sealed interface Voice: RoomMessage
+@Serializable(with = VoiceCallMessageSerializer::class)
+sealed interface VoiceCallMessage {
+    sealed interface MembershipChange: VoiceCallMessage
 
     @Serializable
     @SerialName("user_joined")
-    data object VoiceJoin: Voice
+    data object JoinCall: MembershipChange
 
     @Serializable
     @SerialName("user_exit")
-    data object VoiceLeave: Voice
+    data object LeaveCall: MembershipChange
 
-    sealed interface Signaling: RoomMessage {
-        val toUserId: Long
+    sealed interface PeerSignal: VoiceCallMessage {
+        val recipientUserId: Long
     }
 
     @Serializable
     @SerialName("rtc_conn_offer")
-    data class RTCOffer(override val toUserId: Long, @SerialName("description") val description: RTCSessionDescription): Signaling
+    data class Offer(@SerialName("toUserId") override val recipientUserId: Long, @SerialName("description") val description: RtcSessionDescription): PeerSignal
 
     @Serializable
     @SerialName("rtc_conn_answer")
-    data class RTCAnswer(override val toUserId: Long, @SerialName("description") val description: RTCSessionDescription): Signaling
+    data class Answer(@SerialName("toUserId") override val recipientUserId: Long, @SerialName("description") val description: RtcSessionDescription): PeerSignal
 
     @Serializable
     @SerialName("rtc_conn_candidate")
-    data class RTCCandidate(override val toUserId: Long, @SerialName("candidate") val iceCandidate: RTCIceCandidate): Signaling
+    data class IceCandidate(@SerialName("toUserId") override val recipientUserId: Long, @SerialName("candidate") val iceCandidate: RtcIceCandidate): PeerSignal
 }
 
-object RoomMessageSerializer : KSerializer<RoomMessage> {
+object VoiceCallMessageSerializer : KSerializer<VoiceCallMessage> {
 
     override val descriptor: SerialDescriptor =
-        buildClassSerialDescriptor("RoomMessage")
+        buildClassSerialDescriptor("VoiceCallMessage")
 
-    override fun deserialize(decoder: Decoder): RoomMessage {
+    override fun deserialize(decoder: Decoder): VoiceCallMessage {
         require(decoder is JsonDecoder)
 
         val element = decoder.decodeJsonElement()
@@ -215,40 +219,40 @@ object RoomMessageSerializer : KSerializer<RoomMessage> {
             ?: throw SerializationException("Missing event type")
 
         val serializer = when (type) {
-            "user_joined" -> RoomMessage.VoiceJoin.serializer()
-            "user_exit" -> RoomMessage.VoiceLeave.serializer()
-            "rtc_conn_offer" -> RoomMessage.RTCOffer.serializer()
-            "rtc_conn_answer" -> RoomMessage.RTCAnswer.serializer()
-            "rtc_conn_candidate" -> RoomMessage.RTCCandidate.serializer()
+            "user_joined" -> VoiceCallMessage.JoinCall.serializer()
+            "user_exit" -> VoiceCallMessage.LeaveCall.serializer()
+            "rtc_conn_offer" -> VoiceCallMessage.Offer.serializer()
+            "rtc_conn_answer" -> VoiceCallMessage.Answer.serializer()
+            "rtc_conn_candidate" -> VoiceCallMessage.IceCandidate.serializer()
             else -> throw SerializationException("Unknown event type: $type")
         }
 
         return decoder.json.decodeFromJsonElement(serializer, JsonObject(element.jsonObject - "type"))
     }
 
-    override fun serialize(encoder: Encoder, value: RoomMessage) {
+    override fun serialize(encoder: Encoder, value: VoiceCallMessage) {
         require(encoder is JsonEncoder)
 
         val (type, element) = when (value) {
-            is RoomMessage.VoiceJoin ->
+            is VoiceCallMessage.JoinCall ->
                 "user_joined" to encoder.json.encodeToJsonElement(
-                    RoomMessage.VoiceJoin.serializer(), value
+                    VoiceCallMessage.JoinCall.serializer(), value
                 )
-            is RoomMessage.VoiceLeave ->
+            is VoiceCallMessage.LeaveCall ->
                 "user_exit" to encoder.json.encodeToJsonElement(
-                    RoomMessage.VoiceLeave.serializer(), value
+                    VoiceCallMessage.LeaveCall.serializer(), value
                 )
-            is RoomMessage.RTCOffer ->
+            is VoiceCallMessage.Offer ->
                 "rtc_conn_offer" to encoder.json.encodeToJsonElement(
-                    RoomMessage.RTCOffer.serializer(), value
+                    VoiceCallMessage.Offer.serializer(), value
                 )
-            is RoomMessage.RTCAnswer ->
+            is VoiceCallMessage.Answer ->
                 "rtc_conn_answer" to encoder.json.encodeToJsonElement(
-                    RoomMessage.RTCAnswer.serializer(), value
+                    VoiceCallMessage.Answer.serializer(), value
                 )
-            is RoomMessage.RTCCandidate ->
+            is VoiceCallMessage.IceCandidate ->
                 "rtc_conn_candidate" to encoder.json.encodeToJsonElement(
-                    RoomMessage.RTCCandidate.serializer(), value
+                    VoiceCallMessage.IceCandidate.serializer(), value
                 )
         }
 
@@ -259,13 +263,13 @@ object RoomMessageSerializer : KSerializer<RoomMessage> {
 }
 
 @Serializable
-data class RTCSessionDescription(
+data class RtcSessionDescription(
     val type: String,
     val sdp: String,
 )
 
 @Serializable
-data class RTCIceCandidate(
+data class RtcIceCandidate(
     val candidate: String,
     val sdpMid: String? = null,
     val sdpMLineIndex: Int? = null,
