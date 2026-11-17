@@ -14,6 +14,8 @@ import kio.chat.components.roomMemberList
 import kio.chat.components.roomList
 import kio.chat.components.chatRoomContent
 import kio.chat.components.roomNameEditor
+import kio.http.currentLogger
+import kio.http.info
 import kio.http.CallContext
 import kio.http.respondHtml
 import kio.http.CallInterceptor
@@ -58,7 +60,18 @@ private suspend fun CallContext.handleRoomEvent() {
     val message = Json.decodeFromString<RoomMessage>(body)
 
     val roomId = requireRoomId()
+    val userId = requireSession().userId
+    val eventType = when (message) {
+        RoomMessage.VoiceJoin -> "join"
+        RoomMessage.VoiceLeave -> "leave"
+        is RoomMessage.RTCOffer -> "offer"
+        is RoomMessage.RTCAnswer -> "answer"
+        is RoomMessage.RTCCandidate -> "candidate"
+    }
+    val target = (message as? RoomMessage.Signaling)?.toUserId
+    currentLogger().info("[voice] HTTP received: room=$roomId from=$userId to=$target type=$eventType")
     if (message is RoomMessage.Signaling && !repo.isRoomMember(roomId, message.toUserId)) {
+        currentLogger().info("[voice] HTTP rejected: room=$roomId from=$userId to=$target target is not a room member")
         respond(HttpStatusCode.Forbidden, "目标用户不在该聊天室。")
         return
     }
@@ -66,10 +79,11 @@ private suspend fun CallContext.handleRoomEvent() {
     repo.publishRoomEvent(
         RoomEvent(
             roomId = roomId,
-            senderUserId = requireSession().userId,
+            senderUserId = userId,
             message = message,
         )
     )
+    currentLogger().info("[voice] HTTP published: room=$roomId from=$userId to=$target type=$eventType")
     respond(HttpStatusCode.NoContent)
 }
 

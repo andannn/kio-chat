@@ -9,6 +9,8 @@ import kio.chat.domain.RoomListEvent
 import kio.chat.domain.UserChatEvent
 import kio.chat.domain.UserEvent
 import kio.http.WebsocketContext
+import kio.http.currentLogger
+import kio.http.info
 import kio.http.sendText
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
@@ -22,13 +24,18 @@ internal suspend fun WebsocketContext.handleObserveUserEvent() = coroutineScope 
     val myId = requireSession().userId
     val isJson = call.requestParameters["format"] == "json"
     val selectedRoomId = call.requestParameters["selectedRoomId"]?.toLongOrNull()
+    currentLogger().info("[voice] WebSocket connected: user=$myId")
 
     launch {
         fun handlingUserJoinRoom(roomId: Long) = launch {
+            currentLogger().info("[voice] watching joins: room=$roomId user=$myId")
             while(true) {
                 val joined = repo.waitVoiceJoinEventInRoom(roomId)
+                currentLogger().info("[voice] requesting offer: room=$roomId from=$myId to=${joined.senderUserId}")
                 sendText(Json.encodeToString<UserEvent>(RoomVoiceEvent.OnRequestSendOfferToUser(roomId, joined.senderUserId)))
+                currentLogger().info("[voice] waiting answer: room=$roomId from=${joined.senderUserId} to=$myId")
                 val answer = repo.waitRTCAnswerFromUser(roomId, myId, joined.senderUserId)
+                currentLogger().info("[voice] forwarding answer: room=$roomId from=${answer.senderUserId} to=$myId")
                 sendText(Json.encodeToString<UserEvent>(RoomVoiceEvent.OnRequestSaveAnswer(
                     roomId,
                     answer.senderUserId,
@@ -40,6 +47,7 @@ internal suspend fun WebsocketContext.handleObserveUserEvent() = coroutineScope 
         fun handlingOffer(roomId: Long) = launch {
             while (true) {
                 val offer = repo.waitRTCOfferToUser(roomId, myId)
+                currentLogger().info("[voice] forwarding offer: room=$roomId from=${offer.senderUserId} to=$myId")
                 sendText(Json.encodeToString<UserEvent>(RoomVoiceEvent.OnRequestSendAnswerToUser(
                     roomId,
                     offer.senderUserId,
@@ -51,6 +59,7 @@ internal suspend fun WebsocketContext.handleObserveUserEvent() = coroutineScope 
         fun handlingExchangeCandidate(roomId: Long) = launch {
             while (true) {
                 val candidate = repo.waitRTCCandidateToUser(roomId, myId)
+                currentLogger().info("[voice] forwarding candidate: room=$roomId from=${candidate.senderUserId} to=$myId")
                 sendText(Json.encodeToString<UserEvent>(RoomVoiceEvent.OnReceiveCandidate(
                     roomId,
                     candidate.senderUserId,
@@ -65,11 +74,13 @@ internal suspend fun WebsocketContext.handleObserveUserEvent() = coroutineScope 
         repo.observeUserVoiceEvent(myId).collect { event ->
             if (event.message is RoomMessage.VoiceJoin) {
                 if (handlingUserJoinJob == null && handlingOfferJob == null && handlingExchangeCandidateJob == null) {
+                    currentLogger().info("[voice] joined: room=${event.roomId} user=$myId")
                     handlingUserJoinJob = handlingUserJoinRoom(event.roomId)
                     handlingOfferJob = handlingOffer(event.roomId)
                     handlingExchangeCandidateJob = handlingExchangeCandidate(event.roomId)
                 }
             } else {
+                currentLogger().info("[voice] leaving: room=${event.roomId} user=$myId")
                 handlingUserJoinJob?.cancelAndJoin()
                 handlingOfferJob?.cancelAndJoin()
                 handlingExchangeCandidateJob?.cancelAndJoin()
