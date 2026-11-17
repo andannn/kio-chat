@@ -153,9 +153,15 @@ fun TagConsumer<*>.chatRoomContent(room: Room, isOwner: Boolean = false) {
                 }
 
                 button(type = ButtonType.button, classes = "members-toggle") {
-                    id = "start-mic"
-                    attributes["onclick"] = "startMic()"
-                    +"start-mic"
+                    id = "voice-join"
+                    attributes["onclick"] = "joinVoice('${room.id}')"
+                    +"加入语音"
+                }
+
+                button(type = ButtonType.button, classes = "members-toggle") {
+                    id = "voice-exit"
+                    attributes["onclick"] = "exitVoice('${room.id}')"
+                    +"退出语音"
                 }
 
                 button(type = ButtonType.button, classes = "members-toggle") {

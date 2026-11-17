@@ -27,9 +27,10 @@ internal suspend fun WebsocketContext.handleObserveUserEvent() = coroutineScope 
         fun handlingUserJoinRoom(roomId: Long) = launch {
             while(true) {
                 val joined = repo.waitVoiceJoinEventInRoom(roomId)
-                sendText(Json.encodeToString<UserEvent>(RoomVoiceEvent.OnRequestSendOfferToUser(myId, joined.senderUserId)))
+                sendText(Json.encodeToString<UserEvent>(RoomVoiceEvent.OnRequestSendOfferToUser(roomId, joined.senderUserId)))
                 val answer = repo.waitRTCAnswerFromUser(roomId, myId, joined.senderUserId)
                 sendText(Json.encodeToString<UserEvent>(RoomVoiceEvent.OnRequestSaveAnswer(
+                    roomId,
                     answer.senderUserId,
                     (answer.message as RoomMessage.RTCAnswer).description,
                 )))
@@ -40,6 +41,7 @@ internal suspend fun WebsocketContext.handleObserveUserEvent() = coroutineScope 
             while (true) {
                 val offer = repo.waitRTCOfferToUser(roomId, myId)
                 sendText(Json.encodeToString<UserEvent>(RoomVoiceEvent.OnRequestSendAnswerToUser(
+                    roomId,
                     offer.senderUserId,
                     (offer.message as RoomMessage.RTCOffer).description,
                 )))
@@ -50,6 +52,7 @@ internal suspend fun WebsocketContext.handleObserveUserEvent() = coroutineScope 
             while (true) {
                 val candidate = repo.waitRTCCandidateToUser(roomId, myId)
                 sendText(Json.encodeToString<UserEvent>(RoomVoiceEvent.OnReceiveCandidate(
+                    roomId,
                     candidate.senderUserId,
                     (candidate.message as RoomMessage.RTCCandidate).iceCandidate,
                 )))

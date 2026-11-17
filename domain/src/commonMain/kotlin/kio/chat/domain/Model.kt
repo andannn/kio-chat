@@ -68,19 +68,19 @@ sealed interface RoomJoinRequestEvent: UserEvent {
 sealed interface RoomVoiceEvent: UserEvent {
     @Serializable
     @SerialName("on_request_send_offer_to_user")
-    data class OnRequestSendOfferToUser(val myId: Long, val userId: Long): RoomVoiceEvent
+    data class OnRequestSendOfferToUser(val roomId: Long, val userId: Long): RoomVoiceEvent
 
     @Serializable
     @SerialName("on_request_send_answer_to_user")
-    data class OnRequestSendAnswerToUser(val userId: Long, val offerDescription: RTCSessionDescription): RoomVoiceEvent
+    data class OnRequestSendAnswerToUser(val roomId: Long, val userId: Long, val offerDescription: RTCSessionDescription): RoomVoiceEvent
 
     @Serializable
     @SerialName("on_request_save_answer")
-    data class OnRequestSaveAnswer(val userId: Long, val answerDescription: RTCSessionDescription): RoomVoiceEvent
+    data class OnRequestSaveAnswer(val roomId: Long, val userId: Long, val answerDescription: RTCSessionDescription): RoomVoiceEvent
 
     @Serializable
     @SerialName("on_receive_candidate")
-    data class OnReceiveCandidate(val userId: Long, val candidate: RTCIceCandidate): RoomVoiceEvent
+    data class OnReceiveCandidate(val roomId: Long, val userId: Long, val candidate: RTCIceCandidate): RoomVoiceEvent
 }
 
 @Serializable
@@ -260,12 +260,7 @@ object RoomMessageSerializer : KSerializer<RoomMessage> {
 
 @Serializable
 data class RTCSessionDescription(
-    @Serializable
-    @SerialName("rtc_session_description_type")
     val type: String,
-
-    @Serializable
-    @SerialName("rtc_session_description_sdp")
     val sdp: String,
 )
 
