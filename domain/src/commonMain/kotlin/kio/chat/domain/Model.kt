@@ -65,10 +65,11 @@ sealed interface RoomJoinRequestEvent: UserEvent {
 }
 
 @Serializable
+@SerialName("ws_session_ready")
+data class WebSocketSessionReady(val wsSessionId: String) : UserEvent
+
+@Serializable
 sealed interface VoiceSignalingEvent: UserEvent {
-    @Serializable
-    @SerialName("voice_connection_ready")
-    data class ConnectionReady(val connectionId: String) : VoiceSignalingEvent
 
     @Serializable
     @SerialName("on_request_send_offer_to_user")
@@ -92,10 +93,6 @@ sealed interface UserChatEvent : UserEvent {
     val roomId: Long
 
     @Serializable
-    @SerialName("chat_initial")
-    data class Initial(override val roomId: Long, val message: List<Message>) : UserChatEvent
-
-    @Serializable
     @SerialName("chat_added")
     data class Added(override val roomId: Long, val message: Message) : UserChatEvent
 
@@ -106,6 +103,25 @@ sealed interface UserChatEvent : UserEvent {
     @Serializable
     @SerialName("chat_deleted")
     data class Deleted(override val roomId: Long, val messageId: Long) : UserChatEvent
+}
+
+@Serializable
+sealed interface VoiceParticipantsEvent : UserEvent {
+    val roomId: Long
+
+    @Serializable
+    @SerialName("voice_participant_added")
+    data class Added(
+        override val roomId: Long,
+        val member: RoomMember,
+    ) : VoiceParticipantsEvent
+
+    @Serializable
+    @SerialName("voice_participant_removed")
+    data class Removed(
+        override val roomId: Long,
+        val userId: Long,
+    ) : VoiceParticipantsEvent
 }
 
 @Serializable
@@ -175,6 +191,12 @@ data class RoomMembersPage(
 data class AppVersion(
     @SerialName("versionCode") val versionCode: Int,
     @SerialName("versionName") val versionName: String,
+)
+
+@Serializable
+data class VoiceCallRequest(
+    val wsSessionId: String,
+    val message: VoiceCallMessage,
 )
 
 @Serializable(with = VoiceCallMessageSerializer::class)

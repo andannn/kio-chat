@@ -4,6 +4,7 @@ import kio.chat.domain.Message
 import kio.chat.domain.RoomJoinRequest
 import kio.chat.domain.RoomRole
 import kio.chat.domain.RoomMember
+import kio.chat.domain.VoiceParticipantsEvent
 import kio.chat.domain.Room
 import kio.chat.util.*
 import kotlinx.html.*
@@ -93,7 +94,6 @@ fun TagConsumer<*>.roomItem(room: Room, selected: Boolean = false, outOfBand: Bo
                 this.setAttribute('aria-current', 'page');
             """.trimIndent()
             span(classes = "room-name") { +room.name }
-            roomMessagePreview(room.id, null)
         }
         roomItemOptionsMenu(room.id)
     }
@@ -131,7 +131,6 @@ fun TagConsumer<*>.roomNameEditor(room: Room) {
             hxSwap = "none"
             attributes["hx-sync"] = "this:drop"
         }
-        roomMessagePreview(room.id, null)
     }
 }
 
@@ -170,6 +169,16 @@ fun TagConsumer<*>.chatRoomContent(room: Room, isOwner: Boolean = false) {
                     attributes["hx-on:click"] = "toggleRoomMembers(this)"
                     +"成员"
                 }
+            }
+            section(classes = "voice-participants") {
+                attributes["data-voice-participants"] = ""
+                attributes["aria-label"] = "正在语音通话的成员"
+                hxGet = "/rooms/${room.id}/voice/members"
+                hxTrigger = "load, refresh"
+                hxSwap = "innerHTML"
+                attributes["hx-headers"] = """{"Accept":"text/html"}"""
+                attributes["hx-sync"] = "this:drop"
+                voiceParticipantList(room.id, emptyList())
             }
             section(classes = "chat-messages") {
                 id = "messages"
@@ -238,6 +247,50 @@ fun TagConsumer<*>.chatRoomContent(room: Room, isOwner: Boolean = false) {
     }
 }
 
+fun TagConsumer<*>.voiceParticipantList(roomId: Long, members: List<RoomMember>) {
+    div(classes = "voice-participants-header") {
+        strong { +"语音通话中" }
+        button(type = ButtonType.button, classes = "members-toggle") {
+            attributes["hx-on:click"] = "htmx.trigger(this.closest('[data-voice-participants]'), 'refresh')"
+            +"刷新"
+        }
+    }
+    p(classes = "voice-participants-status") {
+        attributes["data-voice-participant-status"] = ""
+        attributes["role"] = "status"
+        hidden = true
+    }
+    ul(classes = "voice-participants-list") {
+        id = "voice-participants-list"
+        members.forEach { member ->
+            li { voiceParticipantItem(roomId, member) }
+        }
+    }
+}
+
+private fun LI.voiceParticipantItem(roomId: Long, member: RoomMember) {
+    id = "voice-participant-$roomId-${member.userId}"
+    attributes["data-voice-room-id"] = roomId.toString()
+    +member.nickname
+    if (member.role == RoomRole.Owner) {
+        span(classes = "member-role") { +"群主" }
+    }
+}
+
+fun TagConsumer<*>.voiceParticipantEvent(event: VoiceParticipantsEvent) {
+    when (event) {
+        is VoiceParticipantsEvent.Added -> ul {
+            id = "voice-participants-list"
+            hxSwapOob = "beforeend"
+            li { voiceParticipantItem(event.roomId, event.member) }
+        }
+        is VoiceParticipantsEvent.Removed -> div {
+            id = "voice-participant-${event.roomId}-${event.userId}"
+            hxSwapOob = "delete"
+        }
+    }
+}
+
 fun TagConsumer<*>.roomMemberList(members: List<RoomMember>) {
     ul {
         members.forEach { member ->
@@ -259,16 +312,6 @@ private fun TagConsumer<*>.roomJoinRequestsButton() {
         attributes["commandfor"] = "join-requests-dialog"
         attributes["command"] = "show-modal"
         +"入群申请"
-        roomJoinRequestCount()
-    }
-}
-
-private fun TagConsumer<*>.roomJoinRequestCount() {
-    span(classes = "join-request-count") {
-        id = "join-request-count"
-        hidden = true
-        attributes["aria-label"] = "0 条待处理申请"
-        +"0"
     }
 }
 
@@ -369,24 +412,4 @@ fun TagConsumer<*>.roomListDeleted(roomId: Long) {
 
 fun TagConsumer<*>.roomListChanged(room: Room) {
     roomItem(room, outOfBand = true)
-}
-
-fun TagConsumer<*>.roomMessagePreview(
-    roomId: Long,
-    message: Message?,
-    outOfBand: Boolean = false,
-    changed: Boolean = false,
-) {
-    span(classes = "room-message-preview") {
-        id = "room-message-preview-$roomId"
-        attributes["data-message-id"] = message?.id?.toString().orEmpty()
-        if (outOfBand) {
-            hxSwapOob = "outerHTML"
-            attributes["data-message-changed"] = changed.toString()
-        } else {
-            attributes["hx-preserve"] = "true"
-        }
-        if (message == null) +"还没有消息"
-        else +"${message.nickname}：${message.text}"
-    }
 }

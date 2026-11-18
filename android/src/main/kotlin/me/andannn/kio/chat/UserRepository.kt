@@ -4,6 +4,8 @@ import android.util.Log
 import kio.chat.domain.Message
 import kio.chat.domain.Room
 import kio.chat.domain.VoiceSignalingEvent
+import kio.chat.domain.VoiceParticipantsEvent
+import kio.chat.domain.WebSocketSessionReady
 import kio.chat.domain.RoomJoinRequest
 import kio.chat.domain.RoomJoinRequestEvent
 import kio.chat.domain.RoomListEvent
@@ -42,6 +44,8 @@ class UserRepositoryImpl(
                 is RoomListEvent -> handleRoomListEvent(event)
                 is RoomJoinRequestEvent -> handleRoomJoinRequestEvent(event)
                 is VoiceSignalingEvent -> Unit
+                is VoiceParticipantsEvent -> Unit
+                is WebSocketSessionReady -> Unit
                 is UserChatEvent -> {
                     handleChatMessageEvent(event)
                     chatEventFlow.emit(event)

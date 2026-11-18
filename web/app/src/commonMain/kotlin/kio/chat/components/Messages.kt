@@ -95,11 +95,7 @@ private fun TagConsumer<*>.messageHistoryControl(beforeId: Long?, hasMore: Boole
 
 fun TagConsumer<*>.chatMessageEvent(event: UserChatEvent, userId: Long) {
     when (event) {
-        is UserChatEvent.Initial -> roomMessagePreview(
-            event.roomId, event.message.maxByOrNull { it.id }, outOfBand = true,
-        )
         is UserChatEvent.Added -> {
-            roomMessagePreview(event.roomId, event.message, outOfBand = true)
             div {
                 id = "messages"
                 hxSwapOob = "beforeend"
@@ -107,7 +103,6 @@ fun TagConsumer<*>.chatMessageEvent(event: UserChatEvent, userId: Long) {
             }
         }
         is UserChatEvent.Changed -> {
-            roomMessagePreview(event.roomId, event.message, outOfBand = true, changed = true)
             article {
                 hxSwapOob = "outerHTML"
                 messageItem(event.message, event.message.user.id == userId, event.roomId)

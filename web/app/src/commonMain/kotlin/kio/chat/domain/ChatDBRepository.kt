@@ -41,8 +41,11 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.isActive
@@ -69,8 +72,7 @@ interface ChatDBRepository {
     suspend fun getRoomById(roomId: Long): Room?
     suspend fun updateRoomName(roomId: Long, userId: Long, name: String): Boolean
     suspend fun deleteRoom(roomId: Long, userId: Long): Boolean
-    fun observeRoomJoinRequestEvent(userId: Long): Flow<RoomJoinRequestEvent>
-    fun observeRoomAndChatMessageEventByUser(userId: Long): Flow<UserEvent>
+    fun getMessageEventSharedFlow(): SharedFlow<MessageEvent>
     suspend fun recordMessage(userId: Long, msg: String, roomId: Long)
     suspend fun getOwnMessage(userId: Long, messageId: Long, roomId: Long): Message?
     suspend fun updateMessage(userId: Long, messageId: Long, text: String, roomId: Long): Boolean
@@ -227,69 +229,12 @@ class ChatDBRepositoryImpl(
     override suspend fun deleteRoom(roomId: Long, userId: Long): Boolean =
         pgPool.useConnection { it.deleteRoom(roomId, userId) }
 
+    override fun getMessageEventSharedFlow(): SharedFlow<MessageEvent> {
+        return dbMessageEventFlow
+    }
+
     override suspend fun updateRoomName(roomId: Long, userId: Long, name: String): Boolean =
         pgPool.useConnection { it.updateRoomName(roomId, userId, name) }
-
-    override fun observeRoomJoinRequestEvent(userId: Long): Flow<RoomJoinRequestEvent> = flow {
-        val ids = mutableSetOf<Long>()
-        dbMessageEventFlow
-            .onSubscription {
-                val requests = getRoomJoinRequests(userId)
-                ids.addAll(requests.map { it.id })
-                this@flow.emit(RoomJoinRequestEvent.Initial(requests))
-            }
-            .filterIsInstance<MessageEvent.RoomJoinRequestMessageEvent>()
-            .collect { (eventUserId, event) ->
-                if (eventUserId != userId) return@collect
-                when (event) {
-                    is RoomJoinRequestEvent.Added -> if (ids.add(event.request.id)) emit(event)
-                    is RoomJoinRequestEvent.Removed -> if (ids.remove(event.requestId)) emit(event)
-                    is RoomJoinRequestEvent.Initial -> Unit
-                }
-            }
-    }
-
-    override fun observeRoomAndChatMessageEventByUser(userId: Long): Flow<UserEvent> = flow {
-        val roomIds = mutableSetOf<Long>()
-        dbMessageEventFlow
-            .onSubscription {
-                val requests = getRoomList(userId)
-                roomIds.addAll(requests.map { it.id })
-
-                this@flow.emit(RoomListEvent.Initial(requests))
-
-                roomIds.forEach { id ->
-                    val message = getMessageList(limit = 1, roomId = id)
-                    emit(UserChatEvent.Initial(id, message))
-                }
-            }
-            .collect { message ->
-                when (message) {
-                    is MessageEvent.RoomsMessage -> {
-                        if (message.userId != userId) return@collect
-                        when (val event = message.event) {
-                            is RoomListEvent.Added -> {
-                                if (roomIds.add(event.room.id)) {
-                                    emit(event)
-
-                                    val message = getMessageList(limit = 1, roomId = event.room.id)
-                                    emit(UserChatEvent.Initial(event.room.id, message))
-                                }
-                            }
-                            is RoomListEvent.Deleted -> if (roomIds.remove(event.roomId)) emit(event)
-                            is RoomListEvent.Changed -> if (event.room.id in roomIds) emit(event)
-                            is RoomListEvent.Initial -> Unit
-                        }
-                    }
-                    is MessageEvent.ChatMessageEvent -> {
-                        if (roomIds.contains(message.event.roomId)) {
-                            emit(message.event)
-                        }
-                    }
-                    is MessageEvent.RoomJoinRequestMessageEvent -> Unit
-                }
-            }
-    }
 
     override suspend fun recordMessage(userId: Long, msg: String, roomId: Long) {
         pgPool.useConnection { it.createMessage(userId, msg, roomId) }
@@ -315,7 +260,7 @@ class ChatDBRepositoryImpl(
     }
 }
 
-private sealed interface MessageEvent {
+sealed interface MessageEvent {
     data class RoomsMessage(
         val userId: Long,
         val event: RoomListEvent

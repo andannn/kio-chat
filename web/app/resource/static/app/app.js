@@ -26,14 +26,6 @@ function toggleRoomMembers(button) {
     }
 }
 
-function updateJoinRequestCount(container) {
-    const count = container.querySelectorAll("#room-join-requests .join-request").length;
-    const badge = container.querySelector("#join-request-count");
-    badge.textContent = String(count);
-    badge.hidden = count === 0;
-    badge.setAttribute("aria-label", `${count} 条待处理申请`);
-}
-
 function filterUserEventSwap(event) {
     const target = event.detail.target;
     if (target.classList.contains("room-item") && !event.detail.fragment.childNodes.length) {
@@ -42,6 +34,12 @@ function filterUserEventSwap(event) {
         if (document.querySelector(".chat-room")?.dataset.roomId === roomId) {
             window.location.replace("/");
         }
+    }
+    const participant = event.detail.fragment.querySelector("[data-voice-room-id]");
+    if (participant && (participant.dataset.voiceRoomId !== document.querySelector(".chat-room")?.dataset.roomId ||
+        document.getElementById(participant.id))) {
+        event.detail.shouldSwap = false;
+        return;
     }
     const message = event.detail.fragment.querySelector("[data-chat-room-id]");
     if (message && message.dataset.chatRoomId !== document.querySelector(".chat-room")?.dataset.roomId) {
@@ -61,7 +59,7 @@ function filterUserEventSwap(event) {
     }
 }
 
-let voiceConnectionId = null;
+let wsSessionId = null;
 
 async function postRoomEvent(session, message) {
     const roomId = session.roomId;
@@ -69,8 +67,8 @@ async function postRoomEvent(session, message) {
     const response = await fetch(`/rooms/${encodeURIComponent(roomId)}/events`, {
         method: "POST",
         credentials: "same-origin",
-        headers: { "Content-Type": "application/json", "X-Voice-Connection": session.connectionId },
-        body: JSON.stringify(message),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ wsSessionId: session.wsSessionId, message }),
     });
     if (!response.ok || response.redirected) {
         throw new Error(`Room event failed (${response.status}): ${await response.text()}`);
@@ -86,12 +84,12 @@ async function joinVoice(roomId) {
     if (voiceSession?.roomId === roomId) return;
     if (voiceSession) await exitVoice();
 
-    if (!voiceConnectionId) {
+    if (!wsSessionId) {
         window.alert("语音连接尚未就绪，请稍后重试。");
         return;
     }
     const session = {
-        connectionId: voiceConnectionId,
+        wsSessionId: wsSessionId,
         roomId,
         stream: null,
         peers: new Map(),
@@ -230,14 +228,21 @@ const voiceEventTypes = new Set([
 let voiceSocket = null;
 document.addEventListener("htmx:wsOpen", event => {
     voiceSocket = event.detail.event.target;
-    voiceConnectionId = null;
+    wsSessionId = null;
     if (voiceSession) closeVoiceSession(voiceSession);
 });
 document.addEventListener("htmx:wsClose", event => {
     if (event.detail.event.target !== voiceSocket) return;
     voiceSocket = null;
-    voiceConnectionId = null;
+    wsSessionId = null;
     if (voiceSession) closeVoiceSession(voiceSession);
+    const panel = document.querySelector("[data-voice-participants]");
+    if (panel) {
+        htmx.trigger(panel, "htmx:abort");
+        const status = panel.querySelector("[data-voice-participant-status]");
+        status.textContent = "连接已断开，名单可能已过期。";
+        status.hidden = false;
+    }
 });
 
 document.addEventListener("htmx:wsBeforeMessage", (event) => {
@@ -249,9 +254,11 @@ document.addEventListener("htmx:wsBeforeMessage", (event) => {
     } catch {
         return;
     }
-    if (message.type === "voice_connection_ready") {
+    if (message.type === "ws_session_ready") {
         event.preventDefault();
-        voiceConnectionId = message.connectionId;
+        wsSessionId = message.wsSessionId;
+        const panel = document.querySelector("[data-voice-participants]");
+        if (panel) htmx.trigger(panel, "refresh");
         return;
     }
     if (!voiceEventTypes.has(message.type)) return;
