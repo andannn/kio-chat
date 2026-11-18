@@ -1,11 +1,23 @@
 package me.andannn.kio.chat
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CallEnd
+import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -27,6 +39,8 @@ import androidx.navigation3.runtime.NavKey
 import kio.chat.domain.Message
 import kio.chat.domain.User
 import kio.chat.domain.Room
+import kio.chat.domain.RoomMember
+import kio.chat.domain.VoiceParticipantsEvent
 import kio.chat.domain.UserChatEvent
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
@@ -37,6 +51,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.onSubscription
 import me.andannn.kio.chat.util.LocalSnackBarController
 import me.andannn.kio.chat.util.SnackBarController
 import me.andannn.kio.chat.util.rememberAndSetupSnackBarHostState
@@ -48,21 +64,24 @@ import me.andannn.kio.chat.util.stateInRetainedModel
 import me.andannn.kio.chat.widget.MessageItem
 
 private const val TAG = "ScreenRoom"
-fun EntryProviderScope<NavKey>.roomEntry(navigator: Navigator) {
-    entry<Screen.RoomChat> { screen ->
-        RoomUi(navigator, screen.room)
+fun EntryProviderScope<NavKey>.roomEntry(rootNavigator: RootNavigator, navigator: MainNavigator) {
+    entry<MainScreen.RoomChat> { screen ->
+        RoomUi(rootNavigator, navigator, screen.room)
     }
 }
 
 @Composable
 private fun retainRoomState(
-    navigator: Navigator,
+    rootNavigator: RootNavigator,
+    navigator: MainNavigator,
     room: Room,
     service: ChatService = getKoin().get(),
-    repository: UserRepository = getKoin().get(),
+    userEventSource: UserEventSource = getKoin().get(),
+    repository: UserRepository = LocalUserRepository.current,
     snackBarController: SnackBarController = LocalSnackBarController.current,
-) = retainPresenter(navigator, room.id, service, repository, snackBarController) {
-    RoomLayoutPresenter(navigator, room, service, repository, snackBarController)
+    voiceRepository: VoiceCallRepository = LocalVoiceCallRepository.current,
+) = retainPresenter(rootNavigator, navigator, room.id, service, userEventSource, repository, snackBarController, voiceRepository) {
+    RoomLayoutPresenter(rootNavigator, navigator, room, service, userEventSource, repository, snackBarController, voiceRepository)
 }
 
 sealed interface RoomUiEvent {
@@ -73,6 +92,10 @@ sealed interface RoomUiEvent {
     data object OnSettingClick : RoomUiEvent
     data object OnBackClick : RoomUiEvent
     data object OnSendClick : RoomUiEvent
+    data object OnJoinVoice : RoomUiEvent
+    data object OnLeaveVoice : RoomUiEvent
+    data object OnToggleMuted : RoomUiEvent
+    data object OnMicrophoneDenied : RoomUiEvent
 }
 
 private data class RoomLayoutState(
@@ -83,6 +106,10 @@ private data class RoomLayoutState(
     val isLoadingHistory: Boolean = false,
     val effects: Flow<RoomEffect> = emptyFlow(),
     val message: String = "",
+    val voiceParticipants: List<RoomMember> = emptyList(),
+    val voiceCall: VoiceCallState = VoiceCallState(),
+    val isLoadingVoiceParticipants: Boolean = false,
+    val isVoiceBusy: Boolean = false,
     val eventSink: (RoomUiEvent) -> Unit = {},
 )
 
@@ -91,11 +118,14 @@ private sealed interface RoomEffect {
 }
 
 private class RoomLayoutPresenter(
-    val navigator: Navigator,
+    val rootNavigator: RootNavigator,
+    val navigator: MainNavigator,
     room: Room,
     val service: ChatService,
+    val eventSource: UserEventSource,
     repository: UserRepository,
     val snackBarController: SnackBarController,
+    private val voiceRepository: VoiceCallRepository,
 ) : RetainedPresenter<RoomLayoutState>() {
 
     private val roomId = room.id
@@ -111,68 +141,101 @@ private class RoomLayoutPresenter(
     var currentInput by mutableStateOf("")
     var hasMoreHistory by mutableStateOf(false)
     var isLoadingHistory by mutableStateOf(false)
-    private var historyBeforeId: Long? = null
+    private val historyBeforeId: Long? get() = messages.minOfOrNull { it.id }
+    private val voiceParticipants = mutableStateListOf<RoomMember>()
+    private val pendingVoiceEvents = mutableListOf<VoiceParticipantsEvent>()
+    private var isLoadingVoiceParticipants by mutableStateOf(false)
+    private var isVoiceBusy by mutableStateOf(false)
 
     init {
+        retainedScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            voiceRepository.observeParticipantEvents(roomId).collect { event ->
+                if (isLoadingVoiceParticipants) pendingVoiceEvents.add(event)
+                else applyVoiceEvent(event)
+            }
+        }
+
+        loadVoiceParticipants()
+
         retainedScope.launch {
-            val pendingEvents = mutableListOf<UserChatEvent>()
-            var initialized = false
-            val subscription = launch(start = CoroutineStart.UNDISPATCHED) {
-                repository.observeChatMessageEvent(roomId).collect { event ->
-                    if (event is UserChatEvent.Initial) return@collect
-                    if (!initialized) {
-                        pendingEvents.add(event)
-                    } else if (applyChatEvent(event)) {
-                        effectChannel.send(RoomEffect.ScrollToBottom(animated = true))
+            eventSource.events
+                .onSubscription {
+                    val (page, error) = service.getMessageHistory(roomId, beforeId = Long.MAX_VALUE)
+                    context(rootNavigator, snackBarController) {
+                        if (error != null) {
+                            handleError(error)
+                            return@onSubscription
+                        }
+                    }
+
+                    userId = page!!.userId
+                    messages.addAll(page.messages.sortedByDescending { it.id })
+                    hasMoreHistory = page.hasMore
+                }
+                .filterIsInstance<UserChatEvent>()
+                .collect { event ->
+                    when (event) {
+                        is UserChatEvent.Added -> {
+                            if (messages.none { it.id == event.message.id }) {
+                                messages.add(0, event.message)
+                                effectChannel.send(RoomEffect.ScrollToBottom(animated = true))
+                            }
+                        }
+                        is UserChatEvent.Changed -> {
+                            val index = messages.indexOfFirst { it.id == event.message.id }
+                            if (index != -1) messages[index] = event.message
+                        }
+                        is UserChatEvent.Deleted -> {
+                            messages.removeIf { it.id == event.messageId }
+                        }
                     }
                 }
-            }
-
-            isLoadingHistory = true
-            val (page, error) = try {
-                service.getMessageHistory(roomId, beforeId = Long.MAX_VALUE)
-            } finally {
-                isLoadingHistory = false
-            }
-            if (error != null || page == null) {
-                subscription.cancel()
-                context(navigator, snackBarController) {
-                    if (error != null) handleError(error)
-                }
-                return@launch
-            }
-
-            userId = page.userId
-            messages.addAll(page.messages.distinctBy { it.id }.sortedByDescending { it.id })
-            historyBeforeId = page.messages.minOfOrNull { it.id }
-            hasMoreHistory = page.hasMore
-            pendingEvents.forEach { applyChatEvent(it) }
-            pendingEvents.clear()
-            initialized = true
-            effectChannel.trySend(RoomEffect.ScrollToBottom(animated = false))
         }
     }
 
-    private fun applyChatEvent(event: UserChatEvent): Boolean {
+    private fun applyVoiceEvent(event: VoiceParticipantsEvent) {
         when (event) {
-            is UserChatEvent.Initial -> Unit
-            is UserChatEvent.Added -> {
-                if (messages.none { it.id == event.message.id }) {
-                    val index = messages.indexOfFirst { it.id < event.message.id }
-                    messages.add(if (index < 0) messages.size else index, event.message)
-                    return true
-                }
+            is VoiceParticipantsEvent.Added -> {
+                val index = voiceParticipants.indexOfFirst { it.userId == event.member.userId }
+                if (index < 0) voiceParticipants.add(event.member) else voiceParticipants[index] = event.member
             }
-            is UserChatEvent.Changed -> {
-                val index = messages.indexOfFirst { it.id == event.message.id }
-                if (index >= 0) messages[index] = event.message
-            }
-            is UserChatEvent.Deleted -> messages.removeIf { it.id == event.messageId }
+            is VoiceParticipantsEvent.Removed -> voiceParticipants.removeAll { it.userId == event.userId }
         }
-        return false
     }
 
-    context(navigator: Navigator, snackBar: SnackBarController)
+    private fun loadVoiceParticipants() {
+        if (isLoadingVoiceParticipants) return
+        isLoadingVoiceParticipants = true
+        retainedScope.launch {
+            val (members, error) = try {
+                voiceRepository.getParticipants(roomId)
+            } finally {
+                isLoadingVoiceParticipants = false
+            }
+            if (members != null) {
+                voiceParticipants.clear()
+                voiceParticipants.addAll(members.distinctBy { it.userId })
+            }
+            pendingVoiceEvents.forEach(::applyVoiceEvent)
+            pendingVoiceEvents.clear()
+            context(rootNavigator, snackBarController) {
+                if (error != null) handleError(error)
+            }
+        }
+    }
+
+    private fun changeVoice(action: suspend () -> ApiError?) {
+        if (isVoiceBusy) return
+        isVoiceBusy = true
+        retainedScope.launch {
+            val error = try { action() } finally { isVoiceBusy = false }
+            context(rootNavigator, snackBarController) {
+                if (error != null) handleError(error)
+            }
+        }
+    }
+
+    context(rootNavigator: RootNavigator, snackBar: SnackBarController)
     private fun loadHistory() {
         val beforeId = historyBeforeId ?: return
         if (isLoadingHistory || !hasMoreHistory) return
@@ -189,13 +252,12 @@ private class RoomLayoutPresenter(
 
             if (page != null) {
                 messages.addAll(page.messages.asReversed())
-                historyBeforeId = page.messages.minOfOrNull { it.id } ?: beforeId
                 hasMoreHistory = page.hasMore
             }
         }
     }
 
-    context(navigator: Navigator, snackBar: SnackBarController)
+    context(rootNavigator: RootNavigator, snackBar: SnackBarController)
     private fun sendMessage() {
         val content = currentInput.trim()
         if (content.isNotEmpty() && content.length <= 2000) {
@@ -210,7 +272,7 @@ private class RoomLayoutPresenter(
         }
     }
 
-    context(navigator: Navigator, snackBar: SnackBarController)
+    context(rootNavigator: RootNavigator, snackBar: SnackBarController)
     private fun updateMessage(messageId: Long, content: String) {
         val text = content.trim()
         if (text.isEmpty() || text.length > 2000) return
@@ -220,7 +282,7 @@ private class RoomLayoutPresenter(
         }
     }
 
-    context(navigator: Navigator, snackBar: SnackBarController)
+    context(rootNavigator: RootNavigator, snackBar: SnackBarController)
     private fun deleteMessage(messageId: Long) {
         retainedScope.launch {
             val (_, error) = service.deleteMessage(roomId, messageId)
@@ -231,7 +293,8 @@ private class RoomLayoutPresenter(
     @Composable
     override fun present(): RoomLayoutState {
         val roomState by roomFlow.collectAsStateWithLifecycle()
-        context(navigator, snackBarController) {
+        val voiceCall by voiceRepository.callState.collectAsStateWithLifecycle()
+        context(rootNavigator, snackBarController) {
             return RoomLayoutState(
                 room = roomState,
                 messages = messages,
@@ -240,15 +303,25 @@ private class RoomLayoutPresenter(
                 isLoadingHistory = isLoadingHistory,
                 effects = effects,
                 message = currentInput,
+                voiceParticipants = voiceParticipants,
+                voiceCall = voiceCall,
+                isLoadingVoiceParticipants = isLoadingVoiceParticipants,
+                isVoiceBusy = isVoiceBusy,
             ) { event ->
                 when (event) {
                     is RoomUiEvent.OnMessageChanged -> currentInput = event.value
                     is RoomUiEvent.OnUpdateMessage -> updateMessage(event.messageId, event.content)
                     is RoomUiEvent.OnDeleteMessage -> deleteMessage(event.messageId)
                     RoomUiEvent.OnLoadHistory -> loadHistory()
-                    RoomUiEvent.OnSettingClick -> navigator.navigateTo(Screen.RoomSetting(roomState))
+                    RoomUiEvent.OnSettingClick -> navigator.navigateTo(MainScreen.RoomSetting(roomState))
                     RoomUiEvent.OnBackClick -> navigator.popBackStack()
                     RoomUiEvent.OnSendClick -> sendMessage()
+                    RoomUiEvent.OnJoinVoice -> changeVoice { voiceRepository.join(roomId) }
+                    RoomUiEvent.OnLeaveVoice -> changeVoice { voiceRepository.leave() }
+                    RoomUiEvent.OnToggleMuted -> changeVoice { voiceRepository.setMuted(!voiceRepository.callState.value.muted) }
+                    RoomUiEvent.OnMicrophoneDenied -> retainedScope.launch {
+                        handleError(ApiError.ServerError("需要麦克风权限才能加入语音，请在系统设置中允许。"))
+                    }
                 }
             }
         }
@@ -257,12 +330,18 @@ private class RoomLayoutPresenter(
 
 @Composable
 private fun RoomUi(
-    navigator: Navigator,
+    rootNavigator: RootNavigator,
+    navigator: MainNavigator,
     room: Room,
     modifier: Modifier = Modifier,
-    presenter: Presenter<RoomLayoutState> = retainRoomState(navigator, room),
+    presenter: Presenter<RoomLayoutState> = retainRoomState(rootNavigator, navigator, room),
 ) {
     val state = presenter.present()
+    val context = LocalContext.current
+    val currentEventSink by rememberUpdatedState(state.eventSink)
+    val microphonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        currentEventSink(if (granted) RoomUiEvent.OnJoinVoice else RoomUiEvent.OnMicrophoneDenied)
+    }
     val listState = rememberLazyListState()
     val currentMessages by rememberUpdatedState(state.messages)
     LaunchedEffect(state.effects, listState) {
@@ -296,6 +375,18 @@ private fun RoomUi(
         onSend = { state.eventSink(RoomUiEvent.OnSendClick) },
         onBack = { state.eventSink(RoomUiEvent.OnBackClick) },
         onSettingClick = { state.eventSink(RoomUiEvent.OnSettingClick) },
+        voiceParticipants = state.voiceParticipants,
+        voiceCall = state.voiceCall,
+        isVoiceBusy = state.isVoiceBusy,
+        onJoinVoice = {
+            if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                state.eventSink(RoomUiEvent.OnJoinVoice)
+            } else {
+                microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+            }
+        },
+        onLeaveVoice = { state.eventSink(RoomUiEvent.OnLeaveVoice) },
+        onToggleMuted = { state.eventSink(RoomUiEvent.OnToggleMuted) },
     )
 }
 
@@ -318,6 +409,12 @@ private fun RoomContent(
     onSettingClick: () -> Unit = {},
     onUpdateMessage: (Long, String) -> Unit = { _, _ -> },
     onDeleteMessage: (Long) -> Unit = {},
+    voiceParticipants: List<RoomMember> = emptyList(),
+    voiceCall: VoiceCallState = VoiceCallState(),
+    isVoiceBusy: Boolean = false,
+    onJoinVoice: () -> Unit = {},
+    onLeaveVoice: () -> Unit = {},
+    onToggleMuted: () -> Unit = {},
 ) {
     Scaffold(
         modifier = modifier.imePadding(),
@@ -348,48 +445,109 @@ private fun RoomContent(
             )
         },
         bottomBar = {
-            BottomAppBar(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
-                OutlinedTextField(
-                    value = message,
-                    onValueChange = onMessageChanged,
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("输入消息…") },
-                    shape = MaterialTheme.shapes.extraLarge,
-                    maxLines = 4,
-                )
-                Spacer(Modifier.width(12.dp))
-                Button(onClick = onSend) { Text("发送") }
+            Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+                Column(
+                    Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(BottomAppBarDefaults.windowInsets)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                ) {
+                    VoiceCallPanel(
+                        roomId = room.id,
+                        currentUserId = currentUserId,
+                        participants = voiceParticipants,
+                        call = voiceCall,
+                        isBusy = isVoiceBusy,
+                        onToggleMuted = onToggleMuted,
+                    )
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        OutlinedTextField(
+                            value = message,
+                            onValueChange = onMessageChanged,
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("输入消息…") },
+                            shape = MaterialTheme.shapes.extraLarge,
+                            maxLines = 4,
+                            trailingIcon = {
+                                IconButton(onClick = onSend) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.Send,
+                                        contentDescription = "发送",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            },
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        val joined = voiceCall.roomId == room.id
+                        FilledIconToggleButton(
+                            checked = joined,
+                            onCheckedChange = { checked -> if (checked) onJoinVoice() else onLeaveVoice() },
+                            enabled = !isVoiceBusy,
+                            modifier = Modifier.size(48.dp),
+                            colors = IconButtonDefaults.filledIconToggleButtonColors(
+                                checkedContainerColor = MaterialTheme.colorScheme.error,
+                                checkedContentColor = MaterialTheme.colorScheme.onError,
+                            ),
+                        ) {
+                            Icon(
+                                imageVector = if (joined) Icons.Filled.CallEnd else Icons.Filled.Call,
+                                contentDescription = when {
+                                    joined -> "挂断"
+                                    voiceCall.roomId != null -> "切换到此房间通话"
+                                    else -> "加入语音"
+                                },
+                            )
+                        }
+                    }
+                    if (voiceCall.roomId != null && voiceCall.roomId != room.id) {
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            Text(
+                                "正在房间 ${voiceCall.roomId} 通话",
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            IconButton(onClick = onLeaveVoice, enabled = !isVoiceBusy) {
+                                Icon(Icons.Filled.CallEnd, "退出当前通话", tint = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                    }
+                }
             }
         },
     ) { padding ->
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .consumeWindowInsets(padding),
-            reverseLayout = true,
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            items(messages, key = { it.id }) { message ->
-                val isMine = currentUserId != null && message.user.id == currentUserId
-                MessageItem(
-                    modifier = Modifier.animateItem(),
-                    message = message,
-                    isMine = isMine,
-                    onDelete = { onDeleteMessage(message.id) },
-                    onEdit = { onUpdateMessage(message.id, it) },
-                )
-            }
-            if (hasMoreHistory) {
-                item(key = "load-history") {
-                    TextButton(
-                        onClick = onLoadHistory,
-                        enabled = !isLoadingHistory,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(if (isLoadingHistory) "加载中…" else "加载更早的消息")
+        Column(Modifier
+            .fillMaxSize()
+            .padding(padding)
+            .consumeWindowInsets(padding)) {
+            LazyColumn(
+                state = listState,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                reverseLayout = true,
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                items(messages, key = { it.id }) { message ->
+                    val isMine = currentUserId != null && message.member.userId == currentUserId
+                    MessageItem(
+                        modifier = Modifier.animateItem(),
+                        message = message,
+                        isMine = isMine,
+                        onDelete = { onDeleteMessage(message.id) },
+                        onEdit = { onUpdateMessage(message.id, it) },
+                    )
+                }
+                if (hasMoreHistory) {
+                    item(key = "load-history") {
+                        TextButton(
+                            onClick = onLoadHistory,
+                            enabled = !isLoadingHistory,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(if (isLoadingHistory) "加载中…" else "加载更早的消息")
+                        }
                     }
                 }
             }
@@ -397,18 +555,67 @@ private fun RoomContent(
     }
 }
 
+@Composable
+private fun VoiceCallPanel(
+    roomId: Long,
+    currentUserId: Long?,
+    participants: List<RoomMember>,
+    call: VoiceCallState,
+    isBusy: Boolean,
+    onToggleMuted: () -> Unit,
+) {
+    val joined = call.roomId == roomId
+    val orderedParticipants = participants.sortedBy { it.userId != currentUserId }
+    val names = orderedParticipants.map { if (it.userId == currentUserId) "你" else it.nickname }
+    // Joining can finish before the participant event arrives.
+    val displayedNames = if (joined && participants.none { it.userId == currentUserId }) {
+        listOf("你") + names
+    } else names
+    if (displayedNames.isEmpty()) return
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp)
+            .heightIn(min = 48.dp),
+        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+    ) {
+        Text(
+            text = displayedNames.joinToString("、"),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier
+                .weight(1f)
+                .horizontalScroll(rememberScrollState()),
+        )
+        if (joined) {
+            IconToggleButton(
+                modifier = Modifier.size(48.dp),
+                checked = call.muted,
+                onCheckedChange = { onToggleMuted() },
+                enabled = !isBusy,
+            ) {
+                Icon(
+                    imageVector = if (call.muted) Icons.Filled.MicOff else Icons.Filled.Mic,
+                    contentDescription = if (call.muted) "取消静音" else "静音",
+                )
+            }
+        }
+
+    }
+}
+
 @Preview
 @Composable
 private fun RoomPreview() {
-    val alice = User(id = 1, username = "小明", passwordHash = "")
-    val bob = User(id = 2, username = "小红", passwordHash = "")
+    val alice = RoomMember(userId = 1, nickname = "小明")
+    val bob = RoomMember(userId = 2, nickname = "小红")
     val messages = listOf(
-        Message(1, alice, "你好，欢迎来到 Kio Chat！", alice.username),
-        Message(2, bob, "小明，你好 👋", bob.username),
-        Message(3, alice, "这是一条比较长的消息，用来预览正文自动换行的效果。", alice.username),
-        Message(4, bob, "也可以发送多行文字。\n这是第二行。", bob.username),
+        Message(1, alice, "你好，欢迎来到 Kio Chat！", alice.nickname),
+        Message(2, bob, "小明，你好 👋", bob.nickname),
+        Message(3, alice, "这是一条比较长的消息，用来预览正文自动换行的效果。", alice.nickname),
+        Message(4, bob, "也可以发送多行文字。\n这是第二行。", bob.nickname),
     )
     KioChatTheme(dynamicColor = false) {
-        RoomContent(room = Room(1, "Title"), messages = messages, message = "正在输入消息…", currentUserId = alice.id)
+        RoomContent(room = Room(1, "Title"), messages = messages, message = "正在输入消息…", currentUserId = alice.userId)
     }
 }

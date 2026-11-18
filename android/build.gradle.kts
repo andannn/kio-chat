@@ -33,6 +33,11 @@ android {
                 .toInt()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
+        defaultConfig {
+            ndk {
+                abiFilters.add("arm64-v8a")
+            }
+        }
     }
 
     compileOptions {
@@ -82,6 +87,7 @@ kotlin {
 
 dependencies {
     implementation(project(":domain"))
+    implementation(libs.webrtc.android)
 
     implementation(project.dependencies.platform(libs.koin.bom))
     implementation(libs.koin.android)

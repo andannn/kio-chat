@@ -1,0 +1,269 @@
+package me.andannn.kio.chat
+
+import android.Manifest
+import android.content.Context
+import android.content.pm.PackageManager
+import android.media.AudioManager
+import android.util.Log
+import androidx.compose.runtime.compositionLocalOf
+import kio.chat.domain.RoomMember
+import kio.chat.domain.RtcIceCandidate
+import kio.chat.domain.VoiceCallMessage
+import kio.chat.domain.VoiceCallRequest
+import kio.chat.domain.VoiceParticipantsEvent
+import kio.chat.domain.VoiceSignalingEvent
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import org.webrtc.AudioSource
+import org.webrtc.AudioTrack
+import org.webrtc.MediaConstraints
+import org.webrtc.PeerConnection
+import org.webrtc.PeerConnectionFactory
+import org.webrtc.audio.JavaAudioDeviceModule
+
+val LocalVoiceCallRepository = compositionLocalOf<VoiceCallRepository> { error("no Local VoiceCallRepository") }
+
+data class VoiceCallState(val roomId: Long? = null, val muted: Boolean = false)
+
+interface VoiceCallRepository {
+    fun CoroutineScope.startObservingEvents(): Job
+    val callState: StateFlow<VoiceCallState>
+    suspend fun getParticipants(roomId: Long): ApiResult<List<RoomMember>>
+    fun observeParticipantEvents(roomId: Long): Flow<VoiceParticipantsEvent>
+    // The UI obtains microphone permission before joining.
+    suspend fun join(roomId: Long): ApiError?
+    suspend fun leave(): ApiError?
+    suspend fun setMuted(muted: Boolean): ApiError?
+}
+
+class VoiceCallRepositoryImpl(
+    applicationContext: Context,
+    private val service: ChatService,
+    private val eventSource: UserEventSource,
+) : VoiceCallRepository {
+    private val context = applicationContext.applicationContext
+    private val audioManager = context.getSystemService(AudioManager::class.java)
+    private val mutex = Mutex()
+    private val state = MutableStateFlow(VoiceCallState())
+
+    override val callState = state.asStateFlow()
+
+    private var call: Call? = null
+    private var initialized = false
+    private var factory: PeerConnectionFactory? = null
+    private var audioDevice: JavaAudioDeviceModule? = null
+    private var audioSource: AudioSource? = null
+    private var audioTrack: AudioTrack? = null
+
+    override fun CoroutineScope.startObservingEvents(): Job = launch(start = CoroutineStart.UNDISPATCHED) {
+        try {
+            eventSource.events.collect { event ->
+                if (event !is VoiceSignalingEvent && event !is VoiceParticipantsEvent.Removed) return@collect
+                try {
+                    mutex.withLock {
+                        when (event) {
+                            is VoiceSignalingEvent -> {
+                                call?.takeIf { it.roomId == event.roomId }?.let { handleSignal(it, event, this@launch) }
+                            }
+                            is VoiceParticipantsEvent.Removed -> {
+                                call?.takeIf { it.roomId == event.roomId }?.let { closePeer(it, event.userId) }
+                            }
+
+                            else -> {}
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    Log.e("VoiceCall", "处理语音事件失败", error)
+                }
+            }
+        } finally {
+            withContext(NonCancellable) { mutex.withLock { closeLocal() } }
+        }
+    }
+
+    override suspend fun getParticipants(roomId: Long) = service.getVoiceParticipants(roomId)
+
+    override fun observeParticipantEvents(roomId: Long): Flow<VoiceParticipantsEvent> =
+        eventSource.events.filterIsInstance<VoiceParticipantsEvent>().filter { it.roomId == roomId }
+
+    override suspend fun join(roomId: Long): ApiError? = mutex.withLock {
+        val wsSessionId = eventSource.wsSessionId ?: return@withLock ApiError.ServerError("语音连接尚未就绪。")
+        if (call?.roomId == roomId) return@withLock null
+
+        leaveInternal()?.let { return@withLock it }
+
+        if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            return@withLock ApiError.ServerError("请先授予麦克风权限。")
+        }
+
+        val current = Call(roomId, wsSessionId, audioManager.mode)
+        call = current
+        try {
+            openAudio()
+            val error = send(current, VoiceCallMessage.JoinCall)
+            if (error != null) {
+                closeLocal()
+                return@withLock error
+            }
+            state.value = VoiceCallState(roomId)
+            null
+        } catch (cancelled: CancellationException) {
+            withContext(NonCancellable) { leaveInternal() }
+            throw cancelled
+        } catch (error: Exception) {
+            closeLocal()
+            ApiError.ServerError(error.message ?: "加入语音通话失败。", error)
+        }
+    }
+
+    override suspend fun leave(): ApiError? = mutex.withLock { leaveInternal() }
+
+    override suspend fun setMuted(muted: Boolean): ApiError? = mutex.withLock {
+        val track = audioTrack ?: return@withLock ApiError.ServerError("尚未加入语音通话。")
+        if (!track.setEnabled(!muted)) return@withLock ApiError.ServerError("无法切换麦克风状态。")
+        state.value = state.value.copy(muted = muted)
+        null
+    }
+
+    private suspend fun handleSignal(call: Call, event: VoiceSignalingEvent, scope: CoroutineScope): ApiError? {
+        val peer = createPeer(call, event.peerUserId, scope)
+        try {
+            return when (event) {
+                is VoiceSignalingEvent.OfferRequested -> {
+                    val offer = peer.connection.createOfferDescription()
+                    peer.connection.setLocalDescription(offer)
+                    send(call, VoiceCallMessage.Offer(event.peerUserId, offer))
+                }
+                is VoiceSignalingEvent.OfferReceived -> {
+                    peer.connection.setRemoteDescription(event.offerDescription)
+                    flushCandidates(peer)
+                    val answer = peer.connection.createAnswerDescription()
+                    peer.connection.setLocalDescription(answer)
+                    send(call, VoiceCallMessage.Answer(event.peerUserId, answer))
+                }
+                is VoiceSignalingEvent.AnswerReceived -> {
+                    peer.connection.setRemoteDescription(event.answerDescription)
+                    flushCandidates(peer)
+                    null
+                }
+                is VoiceSignalingEvent.IceCandidateReceived -> {
+                    if (peer.connection.remoteDescription == null) peer.candidates.add(event.candidate)
+                    else peer.connection.addIceCandidate(event.candidate)
+                    null
+                }
+            }
+        } catch (error: Exception) {
+            closePeer(call, event.peerUserId)
+            throw error
+        }
+    }
+
+    private fun createPeer(current: Call, userId: Long, scope: CoroutineScope): Peer = current.peers.getOrPut(userId) {
+        lateinit var connection: PeerConnection
+        val observer = peerConnectionObserver(
+            onCandidate = { candidate ->
+                scope.launch {
+                    mutex.withLock {
+                        if (current.peers[userId]?.connection === connection) {
+                            send(current, VoiceCallMessage.IceCandidate(userId, candidate))?.let { Log.w("VoiceCall", "$it") }
+                        }
+                    }
+                }
+            },
+            onStateChanged = { connectionState ->
+                if (connectionState == PeerConnection.PeerConnectionState.FAILED) scope.launch {
+                    mutex.withLock {
+                        if (current.peers[userId]?.connection === connection) closePeer(current, userId)
+                    }
+                }
+            },
+        )
+        val config = PeerConnection.RTCConfiguration(
+            listOf(
+                PeerConnection.IceServer.builder("stun:stun.l.google.com:19302").createIceServer(),
+            )
+        ).apply { sdpSemantics = PeerConnection.SdpSemantics.UNIFIED_PLAN }
+
+        connection = checkNotNull(checkNotNull(factory).createPeerConnection(config, observer))
+
+        try {
+            checkNotNull(connection.addTrack(checkNotNull(audioTrack), listOf("voice")))
+            Peer(connection)
+        } catch (error: Exception) {
+            connection.dispose()
+            throw error
+        }
+    }
+
+    private fun flushCandidates(peer: Peer) {
+        peer.candidates.forEach { peer.connection.addIceCandidate(it) }
+        peer.candidates.clear()
+    }
+
+    private fun closePeer(current: Call, userId: Long) {
+        current.peers.remove(userId)?.connection?.dispose()
+    }
+
+    private suspend fun send(current: Call, message: VoiceCallMessage): ApiError? {
+        if (!eventSource.isActiveSession(current.wsSessionId)) return ApiError.ServerError("语音连接已断开。")
+        return service.sendVoiceMessage(current.roomId, VoiceCallRequest(current.wsSessionId, message)).error
+    }
+
+    private suspend fun leaveInternal(): ApiError? {
+        val current = call ?: return null
+        closeLocal()
+        return send(current, VoiceCallMessage.LeaveCall)
+    }
+
+    private fun openAudio() {
+        if (!initialized) {
+            PeerConnectionFactory.initialize(PeerConnectionFactory.InitializationOptions.builder(context).createInitializationOptions())
+            initialized = true
+        }
+        audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
+        val device = JavaAudioDeviceModule.builder(context).createAudioDeviceModule().also { audioDevice = it }
+        val peerFactory = PeerConnectionFactory.builder().setAudioDeviceModule(device).createPeerConnectionFactory().also { factory = it }
+        val source = peerFactory.createAudioSource(MediaConstraints()).also { audioSource = it }
+        audioTrack = peerFactory.createAudioTrack("voice", source)
+    }
+
+    private fun closeLocal() {
+        val current = call ?: return
+        call = null
+        current.peers.keys.toList().forEach { closePeer(current, it) }
+        audioTrack?.dispose()
+        audioTrack = null
+        audioSource?.dispose()
+        audioSource = null
+        factory?.dispose()
+        factory = null
+        audioDevice?.release()
+        audioDevice = null
+        audioManager.mode = current.previousAudioMode
+        state.value = VoiceCallState()
+    }
+}
+
+private data class Peer(val connection: PeerConnection, val candidates: MutableList<RtcIceCandidate> = mutableListOf())
+
+private data class Call(
+    val roomId: Long,
+    val wsSessionId: String,
+    val previousAudioMode: Int,
+    val peers: MutableMap<Long, Peer> = mutableMapOf(),
+)

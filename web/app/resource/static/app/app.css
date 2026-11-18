@@ -540,19 +540,6 @@ body {
 
 #room-join-requests:not(:has(.join-request))::before { content: "还没有新的入群申请"; color: var(--text-muted); }
 
-.join-request-count:not([hidden]) {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    min-width: 1.5em;
-    margin-left: .5em;
-    padding: .1em .45em;
-    border-radius: 999px;
-    background: #b3261e;
-    color: #fff;
-    font-size: .8em;
-    font-weight: 600;
-}
 
 #room-list-items:empty::before { content: "还没有聊天室，试试加入一个吧"; color: var(--text-muted); }
 
@@ -647,3 +634,16 @@ body {
 .room-disband-button:focus-visible { outline: 2px solid #f28b82; outline-offset: 2px; }
 .room-disband-button:disabled { opacity: .5; cursor: default; }
 #room-delete-result { margin-top: 8px; color: var(--text-secondary); font-size: 14px; }
+
+.voice-participants {
+    flex-shrink: 0;
+    padding: 8px 16px 12px;
+    border-bottom: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+}
+.voice-participants-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.voice-participants-header strong { font-size: 14px; }
+.voice-participants-status { margin: 4px 0 0; color: var(--text-muted); font-size: 13px; }
+.voice-participants-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 0; padding: 0; list-style: none; }
+.voice-participants-list li { padding: 5px 10px; border-radius: var(--radius-md); background: var(--bg-surface); overflow-wrap: anywhere; }
+.voice-participants-list:empty::before { content: "暂无成员在语音通话"; color: var(--text-muted); font-size: 13px; }

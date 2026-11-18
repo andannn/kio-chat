@@ -26,18 +26,19 @@ import me.andannn.kio.chat.util.retainPresenter
 import me.andannn.kio.chat.util.stateInRetainedModel
 import org.koin.mp.KoinPlatform.getKoin
 
-fun EntryProviderScope<NavKey>.roomJoinRequestsEntry(navigator: Navigator) {
-    entry<Screen.RoomJoinRequests> { RoomJoinRequests(navigator) }
+fun EntryProviderScope<NavKey>.roomJoinRequestsEntry(rootNavigator: RootNavigator, navigator: MainNavigator) {
+    entry<MainScreen.RoomJoinRequests> { RoomJoinRequests(rootNavigator, navigator) }
 }
 
 @Composable
 private fun retainRoomJoinRequestsState(
-    navigator: Navigator,
-    repository: UserRepository = getKoin().get(),
+    rootNavigator: RootNavigator,
+    navigator: MainNavigator,
+    repository: UserRepository = LocalUserRepository.current,
     service: ChatService = getKoin().get(),
     snackBarController: SnackBarController = LocalSnackBarController.current,
-) = retainPresenter(navigator, repository, service, snackBarController) {
-    RoomJoinRequestsLayoutPresenter(navigator, repository, service, snackBarController)
+) = retainPresenter(rootNavigator, navigator, repository, service, snackBarController) {
+    RoomJoinRequestsLayoutPresenter(rootNavigator, navigator, repository, service, snackBarController)
 }
 
 sealed interface RoomJoinRequestsUiEvent {
@@ -52,7 +53,8 @@ private data class RoomJoinRequestsLayoutState(
 )
 
 private class RoomJoinRequestsLayoutPresenter(
-    private val navigator: Navigator,
+    private val rootNavigator: RootNavigator,
+    private val navigator: MainNavigator,
     repository: UserRepository,
     private val service: ChatService,
     private val snackBarController: SnackBarController,
@@ -63,7 +65,7 @@ private class RoomJoinRequestsLayoutPresenter(
         retainedScope.launch {
             val (_, error) = if (approve) service.approveRoomJoinRequest(requestId)
                 else service.rejectRoomJoinRequest(requestId)
-            context(navigator, snackBarController) {
+            context(rootNavigator, snackBarController) {
                 if (error != null) handleError(error)
             }
         }
@@ -84,9 +86,10 @@ private class RoomJoinRequestsLayoutPresenter(
 
 @Composable
 private fun RoomJoinRequests(
-    navigator: Navigator,
+    rootNavigator: RootNavigator,
+    navigator: MainNavigator,
     modifier: Modifier = Modifier,
-    presenter: Presenter<RoomJoinRequestsLayoutState> = retainRoomJoinRequestsState(navigator),
+    presenter: Presenter<RoomJoinRequestsLayoutState> = retainRoomJoinRequestsState(rootNavigator, navigator),
 ) {
     val state = presenter.present()
     RoomJoinRequestsContent(

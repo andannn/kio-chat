@@ -35,19 +35,20 @@ import me.andannn.kio.chat.util.retainPresenter
 import me.andannn.kio.chat.util.stateInRetainedModel
 import org.koin.mp.KoinPlatform.getKoin
 
-fun EntryProviderScope<NavKey>.roomSettingEntry(navigator: Navigator) {
-    entry<Screen.RoomSetting> { screen -> RoomSetting(navigator, screen.room) }
+fun EntryProviderScope<NavKey>.roomSettingEntry(rootNavigator: RootNavigator, navigator: MainNavigator) {
+    entry<MainScreen.RoomSetting> { screen -> RoomSetting(rootNavigator, navigator, screen.room) }
 }
 
 @Composable
 private fun retainRoomSettingState(
-    navigator: Navigator,
+    rootNavigator: RootNavigator,
+    navigator: MainNavigator,
     room: Room,
     service: ChatService = getKoin().get(),
-    repository: UserRepository = getKoin().get(),
+    repository: UserRepository = LocalUserRepository.current,
     snackBarController: SnackBarController = LocalSnackBarController.current,
-) = retainPresenter(navigator, room.id, service, repository, snackBarController) {
-    RoomSettingLayoutPresenter(navigator, room, service, repository, snackBarController)
+) = retainPresenter(rootNavigator, navigator, room.id, service, repository, snackBarController) {
+    RoomSettingLayoutPresenter(rootNavigator, navigator, room, service, repository, snackBarController)
 }
 
 sealed interface RoomSettingUiEvent {
@@ -69,7 +70,8 @@ private data class RoomSettingLayoutState(
 )
 
 private class RoomSettingLayoutPresenter(
-    val navigator: Navigator,
+    val rootNavigator: RootNavigator,
+    val navigator: MainNavigator,
     val room: Room,
     val service: ChatService,
     repository: UserRepository,
@@ -89,7 +91,7 @@ private class RoomSettingLayoutPresenter(
     init {
         retainedScope.launch {
             val (value, error) = service.getRoomMembers(room.id)
-            context(navigator, snackBarController) {
+            context(rootNavigator, snackBarController) {
                 if (error != null) {
                     handleError(error)
                 } else if (value != null) {
@@ -107,7 +109,7 @@ private class RoomSettingLayoutPresenter(
         retainedScope.launch {
             try {
                 val (_, error) = service.renameRoom(room.id, value)
-                context(navigator, snackBarController) {
+                context(rootNavigator, snackBarController) {
                     if (error != null) handleError(error)
                     else effectChannel.send(RoomSettingEffect.NameSaved)
                 }
@@ -123,7 +125,7 @@ private class RoomSettingLayoutPresenter(
         retainedScope.launch {
             try {
                 val (_, error) = service.disbandRoom(room.id)
-                context(navigator, snackBarController) {
+                context(rootNavigator, snackBarController) {
                     if (error != null) handleError(error)
                 }
             } finally {
@@ -152,10 +154,11 @@ private class RoomSettingLayoutPresenter(
 
 @Composable
 private fun RoomSetting(
-    navigator: Navigator,
+    rootNavigator: RootNavigator,
+    navigator: MainNavigator,
     room: Room,
     modifier: Modifier = Modifier,
-    presenter: Presenter<RoomSettingLayoutState> = retainRoomSettingState(navigator, room),
+    presenter: Presenter<RoomSettingLayoutState> = retainRoomSettingState(rootNavigator, navigator, room),
 ) {
     val state = presenter.present()
     var showRename by remember { mutableStateOf(false) }

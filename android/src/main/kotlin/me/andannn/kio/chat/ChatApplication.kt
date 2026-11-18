@@ -16,7 +16,7 @@ class ChatApplication: Application() {
             modules(
                 module {
                     singleOf(::ChatServiceImpl).bind(ChatService::class)
-                    singleOf(::UserRepositoryImpl).bind(UserRepository::class)
+                    singleOf(::UserEventSource)
                 },
             )
         }

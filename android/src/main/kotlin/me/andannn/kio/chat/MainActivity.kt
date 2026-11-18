@@ -45,7 +45,7 @@ class MainActivity : ComponentActivity() {
             while (true) {
                 val (_, error) = service.checkLogin()
                 if (error == null) {
-                    initialScreen = Screen.Home
+                    initialScreen = Screen.Main
                     break
                 } else if (error == ApiError.AuthenticationError) {
                     initialScreen = Screen.Login

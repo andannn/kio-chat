@@ -93,7 +93,7 @@ suspend fun PgConnection.getUserByUsername(userName: String): ChatUserEntity? {
 
 
 // The database trigger publishes the notification when the transaction commits.
-suspend fun PgConnection.createMessage(userId: Long, text: String, roomId: Long = 1) {
+suspend fun PgConnection.createMessage(userId: Long, text: String, roomId: Long) {
     exec(
         """
         INSERT INTO messages(user_id, text, room_id)
@@ -125,7 +125,7 @@ data class ChatMessageWithUserEntity(
     @SerialName("nickname") val nickname: PgText,
 )
 
-suspend fun PgConnection.getMessageList(beforeId: Long?, limit: Int, roomId: Long = 1): List<ChatMessageWithUserEntity> {
+suspend fun PgConnection.getMessageList(beforeId: Long?, limit: Int, roomId: Long): List<ChatMessageWithUserEntity> {
     require(limit > 0) { "limit must be positive" }
     val whereClause = if (beforeId != null) "AND m.id < $beforeId" else ""
 

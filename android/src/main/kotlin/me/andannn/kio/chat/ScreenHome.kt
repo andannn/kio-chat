@@ -34,18 +34,20 @@ import me.andannn.kio.chat.util.stateInRetainedModel
 import me.andannn.kio.chat.widget.RoomListItemContent
 import org.koin.mp.KoinPlatform.getKoin
 
-fun EntryProviderScope<NavKey>.homeEntry(navigator: Navigator) {
-    entry<Screen.Home> { Home(navigator) }
+fun EntryProviderScope<NavKey>.homeEntry(rootNavigator: RootNavigator, navigator: MainNavigator) {
+    entry<MainScreen.Home> { Home(rootNavigator, navigator) }
 }
+
 private const val TAG = "ScreenHome"
 @Composable
 private fun retainHomeState(
-    navigator: Navigator,
+    rootNavigator: RootNavigator,
+    navigator: MainNavigator,
     service: ChatService = getKoin().get(),
-    repository: UserRepository = getKoin().get(),
+    repository: UserRepository = LocalUserRepository.current,
     snackBarController: SnackBarController = LocalSnackBarController.current,
-) = retainPresenter(navigator, repository, service, snackBarController) {
-    HomeLayoutPresenter(navigator, repository, service, snackBarController)
+) = retainPresenter(rootNavigator, navigator, repository, service, snackBarController) {
+    HomeLayoutPresenter(rootNavigator, navigator, repository, service, snackBarController)
 }
 
 sealed interface HomeUiEvent {
@@ -62,7 +64,8 @@ private data class HomeLayoutState(
 )
 
 private class HomeLayoutPresenter(
-    val navigator: Navigator,
+    val rootNavigator: RootNavigator,
+    val navigator: MainNavigator,
     val repository: UserRepository,
     val service: ChatService,
     val snackBarController: SnackBarController,
@@ -72,16 +75,7 @@ private class HomeLayoutPresenter(
     private var submitting = false
     private var creating = false
 
-    init {
-        retainedScope.launch {
-            val error = repository.observingUserEvent()
-            context(navigator, snackBarController) {
-                if (error != null) handleError(error)
-            }
-        }
-    }
-
-    context(navigator: Navigator, snackBar: SnackBarController)
+    context(rootNavigator: RootNavigator, snackBar: SnackBarController)
     private fun createRoom(name: String) {
         val value = name.trim()
         if (value.isEmpty() || creating) return
@@ -96,7 +90,7 @@ private class HomeLayoutPresenter(
         }
     }
 
-    context(navigator: Navigator, snackBar: SnackBarController)
+    context(rootNavigator: RootNavigator, snackBar: SnackBarController)
     private fun submitJoinRequest(roomId: Long) {
         if (roomId <= 0) return
         if (submitting) return
@@ -114,12 +108,12 @@ private class HomeLayoutPresenter(
         }
     }
 
-    context(navigator: Navigator, snackBar: SnackBarController)
+    context(rootNavigator: RootNavigator, snackBar: SnackBarController)
     private fun logout() {
         retainedScope.launch {
             val (_, error) = service.logout()
             if (error != null) handleError(error)
-            else navigator.clearTopAndGoToLogin()
+            else rootNavigator.clearTopAndGoToLogin()
         }
     }
 
@@ -127,7 +121,7 @@ private class HomeLayoutPresenter(
     override fun present(): HomeLayoutState {
         val roomsState by rooms.collectAsStateWithLifecycle()
         val requestsState by requests.collectAsStateWithLifecycle()
-        context(navigator, snackBarController) {
+        context(rootNavigator, snackBarController) {
             return HomeLayoutState(
                 rooms = roomsState,
                 requests = requestsState,
@@ -135,7 +129,7 @@ private class HomeLayoutPresenter(
                 when (event) {
                     is HomeUiEvent.OnCreateRoom -> createRoom(event.name)
                     is HomeUiEvent.OnSubmitJoinRequest -> submitJoinRequest(event.roomId)
-                    HomeUiEvent.OnJoinRequestsClick -> navigator.navigateTo(Screen.RoomJoinRequests)
+                    HomeUiEvent.OnJoinRequestsClick -> navigator.navigateTo(MainScreen.RoomJoinRequests)
                     HomeUiEvent.OnLogoutClick -> logout()
                 }
             }
@@ -145,9 +139,10 @@ private class HomeLayoutPresenter(
 
 @Composable
 private fun Home(
-    navigator: Navigator,
+    rootNavigator: RootNavigator,
+    navigator: MainNavigator,
     modifier: Modifier = Modifier,
-    presenter: Presenter<HomeLayoutState> = retainHomeState(navigator),
+    presenter: Presenter<HomeLayoutState> = retainHomeState(rootNavigator, navigator),
 ) {
     val state = presenter.present()
     var showJoinRoom by remember { mutableStateOf(false) }
@@ -297,7 +292,7 @@ private fun HomeContent(
 private fun HomePreview() {
     KioChatTheme(dynamicColor = false) {
         HomeContent(listOf(Room(1, "公共聊天室"), Room(2, "日常交流"))) {
-            RoomListItemContent(it, previewMessage = null)
+            RoomListItemContent(it)
         }
     }
 }

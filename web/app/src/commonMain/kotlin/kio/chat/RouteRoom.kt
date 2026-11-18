@@ -1,11 +1,16 @@
 package kio.chat
 
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
+import kio.async.readString
 import kio.chat.util.respondByContentType
 import kotlinx.serialization.json.Json
 import kio.chat.domain.RoomMembersPage
 import kio.chat.domain.Repository
+import kio.chat.domain.VoiceCallMessage
+import kio.chat.domain.VoiceCallRequest
 import kio.chat.components.roomMemberList
+import kio.chat.components.voiceParticipantList
 import kio.chat.components.roomList
 import kio.chat.components.chatRoomContent
 import kio.chat.components.roomNameEditor
@@ -37,13 +42,36 @@ fun Route.roomRoute() {
                 get { call -> call.chatMainPage(requireRoomId()) }
                 delete { call -> call.handleDeleteRoom() }
                 get("members") { call -> call.handleGetRoomMembers() }
+                get("voice/members") { call -> call.handleGetVoiceParticipants() }
                 get("content") { call -> call.handleGetRoomContent() }
                 post("name-editing") { call -> call.handleEditRoomName() }
                 post("name-commit") { call -> call.handleCommitRoomName() }
+                post("events") { call -> call.handleRoomEvent() }
                 messagesRoute()
             }
         }
     }
+}
+
+context(repo: Repository)
+private suspend fun CallContext.handleRoomEvent() {
+    val body = requestBody.readString()
+    val request = Json.decodeFromString<VoiceCallRequest>(body)
+    val message = request.message
+
+    val roomId = requireRoomId()
+    val userId = requireSession().userId
+    if (message is VoiceCallMessage.PeerSignal && !repo.isRoomMember(roomId, message.recipientUserId)) {
+        respond(HttpStatusCode.Forbidden, "目标用户不在该聊天室。")
+        return
+    }
+
+    if (!repo.publishVoiceMessage(roomId, userId, request.wsSessionId, message)) {
+        respond(HttpStatusCode.Conflict, "语音连接不可用，或此账号已在其他页面通话。")
+        return
+    }
+
+    respond(HttpStatusCode.OK)
 }
 
 suspend fun requireRoomId(): Long {
@@ -116,6 +144,19 @@ private suspend fun CallContext.handleGetRoomContent() {
     }
     val isOwner = repo.isRoomOwner(room.id, requireSession().userId)
     respondHtml { chatRoomContent(room, isOwner) }
+}
+
+context(repo: Repository)
+private suspend fun CallContext.handleGetVoiceParticipants() {
+    val roomId = requireRoomId()
+    val participantIds = repo.getVoiceParticipantIds(roomId)
+    val members = repo.getRoomMembers(roomId).filter { it.userId in participantIds }
+    respondByContentType(
+        status = HttpStatusCode.OK,
+        configHeaders = { append(HttpHeaders.CacheControl, "no-store") },
+        buildJson = { Json.encodeToString(members) },
+        buildHtml = { voiceParticipantList(roomId, members) },
+    )
 }
 
 context(repo: Repository)
