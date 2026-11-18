@@ -119,7 +119,6 @@ private class RoomLayoutPresenter(
             var initialized = false
             val subscription = launch(start = CoroutineStart.UNDISPATCHED) {
                 repository.observeChatMessageEvent(roomId).collect { event ->
-                    if (event is UserChatEvent.Initial) return@collect
                     if (!initialized) {
                         pendingEvents.add(event)
                     } else if (applyChatEvent(event)) {
@@ -155,7 +154,6 @@ private class RoomLayoutPresenter(
 
     private fun applyChatEvent(event: UserChatEvent): Boolean {
         when (event) {
-            is UserChatEvent.Initial -> Unit
             is UserChatEvent.Added -> {
                 if (messages.none { it.id == event.message.id }) {
                     val index = messages.indexOfFirst { it.id < event.message.id }

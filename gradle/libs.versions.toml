@@ -14,6 +14,7 @@ androidxActivity = "1.13.0"
 ktor = "3.6.1"
 navigation3Ui = "1.2.1"
 androidxCoreSplashscreen = "1.2.0"
+webrtcAndroid = "150.7871.01"
 
 [libraries]
 kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version = "1.12.0" }
@@ -30,6 +31,7 @@ hash-sha2 = { group = "org.kotlincrypto.hash", name = "sha2", version.ref = "has
 kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
 
 # android dependencies
+webrtc-android = { module = "io.github.webrtc-sdk:android", version.ref = "webrtcAndroid" }
 ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
 ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }

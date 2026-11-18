@@ -46,6 +46,8 @@ import kio.chat.domain.Room
 import kio.chat.domain.AppVersion
 import kio.chat.domain.UserEvent
 import kio.chat.domain.RoomMembersPage
+import kio.chat.domain.RoomMember
+import kio.chat.domain.VoiceCallRequest
 import kio.chat.domain.MessagePage
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
@@ -74,6 +76,8 @@ interface ChatService {
     suspend fun disbandRoom(roomId: Long): ApiResult<Unit>
     suspend fun renameRoom(roomId: Long, name: String): ApiResult<Unit>
     suspend fun getRoomMembers(roomId: Long): ApiResult<RoomMembersPage>
+    suspend fun getVoiceParticipants(roomId: Long): ApiResult<List<RoomMember>>
+    suspend fun sendVoiceMessage(roomId: Long, request: VoiceCallRequest): ApiResult<Unit>
     suspend fun createRoomJoinRequest(roomId: Long): ApiResult<Unit>
     suspend fun approveRoomJoinRequest(requestId: Long): ApiResult<Unit>
     suspend fun rejectRoomJoinRequest(requestId: Long): ApiResult<Unit>
@@ -225,6 +229,19 @@ class ChatServiceImpl : ChatService {
 
     override suspend fun getRoomMembers(roomId: Long): ApiResult<RoomMembersPage> = tryGetResult {
         httpClient.get("/rooms/$roomId/members").body<RoomMembersPage>()
+    }
+
+    override suspend fun getVoiceParticipants(roomId: Long): ApiResult<List<RoomMember>> = tryGetResult {
+        httpClient.get("/rooms/$roomId/voice/members") {
+            headers.append(HttpHeaders.CacheControl, "no-store")
+        }.body<List<RoomMember>>()
+    }
+
+    override suspend fun sendVoiceMessage(roomId: Long, request: VoiceCallRequest): ApiResult<Unit> = tryGetResult {
+        httpClient.post("/rooms/$roomId/events") {
+            contentType(ContentType.Application.Json)
+            setBody(request)
+        }
     }
 
     override suspend fun createRoomJoinRequest(roomId: Long): ApiResult<Unit> = tryGetResult {

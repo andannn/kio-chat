@@ -82,6 +82,7 @@ kotlin {
 
 dependencies {
     implementation(project(":domain"))
+    implementation(libs.webrtc.android)
 
     implementation(project.dependencies.platform(libs.koin.bom))
     implementation(libs.koin.android)

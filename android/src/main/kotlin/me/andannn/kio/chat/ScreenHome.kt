@@ -44,8 +44,9 @@ private fun retainHomeState(
     service: ChatService = getKoin().get(),
     repository: UserRepository = getKoin().get(),
     snackBarController: SnackBarController = LocalSnackBarController.current,
-) = retainPresenter(navigator, repository, service, snackBarController) {
-    HomeLayoutPresenter(navigator, repository, service, snackBarController)
+    eventSource: UserEventSource = getKoin().get(),
+) = retainPresenter(navigator, repository, service, snackBarController, eventSource) {
+    HomeLayoutPresenter(navigator, repository, service, snackBarController, eventSource)
 }
 
 sealed interface HomeUiEvent {
@@ -66,6 +67,7 @@ private class HomeLayoutPresenter(
     val repository: UserRepository,
     val service: ChatService,
     val snackBarController: SnackBarController,
+    val eventSource: UserEventSource,
 ) : RetainedPresenter<HomeLayoutState>() {
     private val rooms = repository.observeRooms().stateInRetainedModel(emptyList())
     private val requests = repository.observeRoomJoinRequest().stateInRetainedModel(emptyList())
@@ -74,7 +76,7 @@ private class HomeLayoutPresenter(
 
     init {
         retainedScope.launch {
-            val error = repository.observingUserEvent()
+            val error = eventSource.observe()
             context(navigator, snackBarController) {
                 if (error != null) handleError(error)
             }
