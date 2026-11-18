@@ -11,11 +11,17 @@ sealed interface Screen : NavKey {
     @Serializable
     data object Register : Screen
     @Serializable
-    data object Home : Screen
+    data object Main: Screen
+}
+
+@Serializable
+sealed interface MainScreen: NavKey {
     @Serializable
-    data object RoomJoinRequests : Screen
+    data object Home : MainScreen
     @Serializable
-    data class RoomChat(val room: Room) : Screen
+    data object RoomJoinRequests : MainScreen
     @Serializable
-    data class RoomSetting(val room: Room) : Screen
+    data class RoomChat(val room: Room) : MainScreen
+    @Serializable
+    data class RoomSetting(val room: Room) : MainScreen
 }

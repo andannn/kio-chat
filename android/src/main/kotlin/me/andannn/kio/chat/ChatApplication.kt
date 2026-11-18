@@ -17,8 +17,6 @@ class ChatApplication: Application() {
                 module {
                     singleOf(::ChatServiceImpl).bind(ChatService::class)
                     singleOf(::UserEventSource)
-                    single<VoiceCallRepository> { VoiceCallRepositoryImpl(androidContext(), get(), get()) }
-                    singleOf(::UserRepositoryImpl).bind(UserRepository::class)
                 },
             )
         }

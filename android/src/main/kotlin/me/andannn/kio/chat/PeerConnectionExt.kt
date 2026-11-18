@@ -18,38 +18,34 @@ import kotlin.time.Duration.Companion.seconds
 internal suspend fun PeerConnection.createOfferDescription(): RtcSessionDescription = createDescription(offer = true)
 internal suspend fun PeerConnection.createAnswerDescription(): RtcSessionDescription = createDescription(offer = false)
 
-private suspend fun PeerConnection.createDescription(offer: Boolean): RtcSessionDescription = withTimeout(10.seconds) {
-    suspendCancellableCoroutine { continuation ->
-        val observer = object : SdpObserver {
-            override fun onCreateSuccess(description: SessionDescription) {
-                if (continuation.isActive) continuation.resume(RtcSessionDescription(description.type.canonicalForm(), description.description))
-            }
-            override fun onCreateFailure(error: String) {
-                if (continuation.isActive) continuation.resumeWithException(IllegalStateException(error))
-            }
-            override fun onSetSuccess() = Unit
-            override fun onSetFailure(error: String) = Unit
+private suspend fun PeerConnection.createDescription(offer: Boolean): RtcSessionDescription = suspendCancellableCoroutine { continuation ->
+    val observer = object : SdpObserver {
+        override fun onCreateSuccess(description: SessionDescription) {
+            if (continuation.isActive) continuation.resume(RtcSessionDescription(description.type.canonicalForm(), description.description))
         }
-        if (offer) createOffer(observer, MediaConstraints()) else createAnswer(observer, MediaConstraints())
+        override fun onCreateFailure(error: String) {
+            if (continuation.isActive) continuation.resumeWithException(IllegalStateException(error))
+        }
+        override fun onSetSuccess() = Unit
+        override fun onSetFailure(error: String) = Unit
     }
+    if (offer) createOffer(observer, MediaConstraints()) else createAnswer(observer, MediaConstraints())
 }
 
 internal suspend fun PeerConnection.setLocalDescription(description: RtcSessionDescription) = setDescription(description, remote = false)
 internal suspend fun PeerConnection.setRemoteDescription(description: RtcSessionDescription) = setDescription(description, remote = true)
 
-private suspend fun PeerConnection.setDescription(description: RtcSessionDescription, remote: Boolean) = withTimeout(10.seconds) {
-    suspendCancellableCoroutine<Unit> { continuation ->
-        val observer = object : SdpObserver {
-            override fun onSetSuccess() { if (continuation.isActive) continuation.resume(Unit) }
-            override fun onSetFailure(error: String) {
-                if (continuation.isActive) continuation.resumeWithException(IllegalStateException(error))
-            }
-            override fun onCreateSuccess(description: SessionDescription) = Unit
-            override fun onCreateFailure(error: String) = Unit
+private suspend fun PeerConnection.setDescription(description: RtcSessionDescription, remote: Boolean) = suspendCancellableCoroutine<Unit> { continuation ->
+    val observer = object : SdpObserver {
+        override fun onSetSuccess() { if (continuation.isActive) continuation.resume(Unit) }
+        override fun onSetFailure(error: String) {
+            if (continuation.isActive) continuation.resumeWithException(IllegalStateException(error))
         }
-        val native = SessionDescription(SessionDescription.Type.fromCanonicalForm(description.type), description.sdp)
-        if (remote) setRemoteDescription(observer, native) else setLocalDescription(observer, native)
+        override fun onCreateSuccess(description: SessionDescription) = Unit
+        override fun onCreateFailure(error: String) = Unit
     }
+    val native = SessionDescription(SessionDescription.Type.fromCanonicalForm(description.type), description.sdp)
+    if (remote) setRemoteDescription(observer, native) else setLocalDescription(observer, native)
 }
 
 internal fun PeerConnection.addIceCandidate(candidate: RtcIceCandidate) {

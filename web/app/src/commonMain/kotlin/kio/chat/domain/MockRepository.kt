@@ -29,7 +29,7 @@ class MockRepositoryImpl : Repository, WsSessionRepository by InMemoryWsSessionR
         users[user.username] = user
         repeat(125) {
             messageRooms[nextMessageId] = 1
-            messages.add(Message(nextMessageId++, user, "Mock message ${it + 1}", user.nickname))
+            messages.add(Message(nextMessageId++, RoomMember(user.id, user.nickname), "Mock message ${it + 1}", user.nickname))
         }
     }
 
@@ -161,16 +161,16 @@ class MockRepositoryImpl : Repository, WsSessionRepository by InMemoryWsSessionR
     override suspend fun recordMessage(userId: Long, msg: String, roomId: Long) {
         requireNotNull(getRoomById(roomId)) { "Unknown room" }
         val user = requireNotNull(users.values.find { it.id == userId }) { "Unknown user" }
-        val message = Message(nextMessageId++, user, msg, user.nickname)
+        val message = Message(nextMessageId++, RoomMember(user.id, user.nickname), msg, user.nickname)
         messageRooms[message.id] = roomId
         messages.add(message)
         messageEventFlow.emit(MessageEvent.ChatMessageEvent(UserChatEvent.Added(roomId, message)))
     }
     override suspend fun getOwnMessage(userId: Long, messageId: Long, roomId: Long): Message? =
-        messages.find { it.id == messageId && it.user.id == userId && messageRooms[it.id] == roomId }
+        messages.find { it.id == messageId && it.member.userId == userId && messageRooms[it.id] == roomId }
 
     override suspend fun updateMessage(userId: Long, messageId: Long, text: String, roomId: Long): Boolean {
-        val index = messages.indexOfFirst { it.id == messageId && it.user.id == userId && messageRooms[it.id] == roomId }
+        val index = messages.indexOfFirst { it.id == messageId && it.member.userId == userId && messageRooms[it.id] == roomId }
         if (index < 0) return false
         val message = messages[index].copy(text = text)
         messages[index] = message

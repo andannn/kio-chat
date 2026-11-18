@@ -74,7 +74,7 @@ fun TagConsumer<*>.messageEditor(message: Message, roomId: Long) {
 fun TagConsumer<*>.messageHistory(messages: List<Message>, currentUserId: Long, hasMore: Boolean, roomId: Long) {
     messageHistoryControl(messages.firstOrNull()?.id, hasMore, roomId)
     messages.forEach { message ->
-        article { messageItem(message, message.user.id == currentUserId, roomId) }
+        article { messageItem(message, message.member.userId == currentUserId, roomId) }
     }
 }
 
@@ -99,13 +99,13 @@ fun TagConsumer<*>.chatMessageEvent(event: UserChatEvent, userId: Long) {
             div {
                 id = "messages"
                 hxSwapOob = "beforeend"
-                messageView(event.message, event.message.user.id == userId, event.roomId)
+                messageView(event.message, event.message.member.userId == userId, event.roomId)
             }
         }
         is UserChatEvent.Changed -> {
             article {
                 hxSwapOob = "outerHTML"
-                messageItem(event.message, event.message.user.id == userId, event.roomId)
+                messageItem(event.message, event.message.member.userId == userId, event.roomId)
             }
         }
         is UserChatEvent.Deleted -> div {

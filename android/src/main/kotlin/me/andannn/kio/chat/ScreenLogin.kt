@@ -33,7 +33,7 @@ import me.andannn.kio.chat.util.rememberAndSetupSnackBarHostState
 import me.andannn.kio.chat.util.retainPresenter
 import org.koin.mp.KoinPlatform.getKoin
 
-fun EntryProviderScope<NavKey>.loginEntry(navigator: Navigator) {
+fun EntryProviderScope<NavKey>.loginEntry(navigator: RootNavigator) {
     entry<Screen.Login> {
         Login(navigator)
     }
@@ -41,7 +41,7 @@ fun EntryProviderScope<NavKey>.loginEntry(navigator: Navigator) {
 
 @Composable
 private fun retainAppState(
-    navigator: Navigator,
+    navigator: RootNavigator,
     repository: ChatService = getKoin().get(),
     snackBarController: SnackBarController = LocalSnackBarController.current
 ) = retainPresenter(
@@ -67,7 +67,7 @@ private data class LoginLayoutState(
 )
 
 private class LoginLayoutPresenter(
-    val navigator: Navigator,
+    val navigator: RootNavigator,
     val service: ChatService,
     val snackBarController: SnackBarController
 ) :
@@ -97,7 +97,7 @@ private class LoginLayoutPresenter(
                                 return@launch
                             }
 
-                            navigator.clearTopAndGoToHome()
+                            navigator.clearTopAndGoToMain()
                         }
                     }
                 }
@@ -108,7 +108,7 @@ private class LoginLayoutPresenter(
 
 @Composable
 private fun Login(
-    navigator: Navigator,
+    navigator: RootNavigator,
     modifier: Modifier = Modifier,
     presenter: Presenter<LoginLayoutState> = retainAppState(navigator),
 ) {

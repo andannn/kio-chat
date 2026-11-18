@@ -250,10 +250,6 @@ fun TagConsumer<*>.chatRoomContent(room: Room, isOwner: Boolean = false) {
 fun TagConsumer<*>.voiceParticipantList(roomId: Long, members: List<RoomMember>) {
     div(classes = "voice-participants-header") {
         strong { +"语音通话中" }
-        button(type = ButtonType.button, classes = "members-toggle") {
-            attributes["hx-on:click"] = "htmx.trigger(this.closest('[data-voice-participants]'), 'refresh')"
-            +"刷新"
-        }
     }
     p(classes = "voice-participants-status") {
         attributes["data-voice-participant-status"] = ""

@@ -32,10 +32,10 @@ fun ChatApp(
     modifier: Modifier = Modifier,
 ) {
     Log.d(TAG, "ChatApp: initialScreen = $initialScreen")
-    val backStack = rememberNavBackStack(initialScreen)
-    val navigator = retain { RootNavigator() }
     val layoutDirection = LocalLayoutDirection.current
 
+    val backStack = rememberNavBackStack(initialScreen)
+    val navigator = retain { RootNavigatorImpl() }
     DisposableEffect(backStack) {
         navigator.backStack = backStack
 
@@ -65,15 +65,12 @@ fun ChatApp(
             entryProvider {
                 loginEntry(navigator)
                 registerEntry(navigator)
-                homeEntry(navigator)
-                roomJoinRequestsEntry(navigator)
-                roomEntry(navigator)
-                roomSettingEntry(navigator)
-            },
+                mainEntry(navigator)
+            }
     )
 }
 
-private fun horizontalSharedAxis(forward: Boolean, layoutDirection: LayoutDirection): ContentTransform {
+fun horizontalSharedAxis(forward: Boolean, layoutDirection: LayoutDirection): ContentTransform {
     val direction = (if (forward) 1 else -1) * (if (layoutDirection == LayoutDirection.Ltr) 1 else -1)
     val fadeSpec = tween<Float>(durationMillis = 90, delayMillis = 50, easing = LinearEasing)
     val transform = (slideInHorizontally { it / 5 * direction } + fadeIn(fadeSpec)) togetherWith

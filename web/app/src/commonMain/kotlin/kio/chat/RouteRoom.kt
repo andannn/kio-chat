@@ -71,7 +71,7 @@ private suspend fun CallContext.handleRoomEvent() {
         return
     }
 
-    respond(HttpStatusCode.NoContent)
+    respond(HttpStatusCode.OK)
 }
 
 suspend fun requireRoomId(): Long {

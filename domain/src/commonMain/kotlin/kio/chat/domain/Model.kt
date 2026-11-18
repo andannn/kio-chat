@@ -34,7 +34,7 @@ data class Session(
 @SerialName("message")
 data class Message(
     @SerialName("id") val id: Long,
-    @SerialName("user") val user: User,
+    @SerialName("member") val member: RoomMember,
     @SerialName("text") val text: String,
     @SerialName("nickname") val nickname: String,
 )
@@ -70,22 +70,24 @@ data class WebSocketSessionReady(val wsSessionId: String) : UserEvent
 
 @Serializable
 sealed interface VoiceSignalingEvent: UserEvent {
+    val roomId: Long
+    val peerUserId: Long
 
     @Serializable
     @SerialName("on_request_send_offer_to_user")
-    data class OfferRequested(val roomId: Long, @SerialName("userId") val peerUserId: Long): VoiceSignalingEvent
+    data class OfferRequested(override val roomId: Long, @SerialName("userId") override val peerUserId: Long): VoiceSignalingEvent
 
     @Serializable
     @SerialName("on_request_send_answer_to_user")
-    data class OfferReceived(val roomId: Long, @SerialName("userId") val peerUserId: Long, val offerDescription: RtcSessionDescription): VoiceSignalingEvent
+    data class OfferReceived(override val roomId: Long, @SerialName("userId") override val peerUserId: Long, val offerDescription: RtcSessionDescription): VoiceSignalingEvent
 
     @Serializable
     @SerialName("on_request_save_answer")
-    data class AnswerReceived(val roomId: Long, @SerialName("userId") val peerUserId: Long, val answerDescription: RtcSessionDescription): VoiceSignalingEvent
+    data class AnswerReceived(override val roomId: Long, @SerialName("userId") override val peerUserId: Long, val answerDescription: RtcSessionDescription): VoiceSignalingEvent
 
     @Serializable
     @SerialName("on_receive_candidate")
-    data class IceCandidateReceived(val roomId: Long, @SerialName("userId") val peerUserId: Long, val candidate: RtcIceCandidate): VoiceSignalingEvent
+    data class IceCandidateReceived(override val roomId: Long, @SerialName("userId") override val peerUserId: Long, val candidate: RtcIceCandidate): VoiceSignalingEvent
 }
 
 @Serializable

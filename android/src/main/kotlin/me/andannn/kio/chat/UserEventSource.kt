@@ -12,8 +12,10 @@ class UserEventSource(private val service: ChatService) {
     private val _events = MutableSharedFlow<UserEvent>(extraBufferCapacity = 64)
     val events = _events.asSharedFlow()
 
-    private var _wsSessionId: String? = null
-    val wsSessionId get() = _wsSessionId ?: error("wsSessionId is not ready")
+    @Volatile private var _wsSessionId: String? = null
+    val wsSessionId: String? get() = _wsSessionId
+
+    fun isActiveSession(wsSessionId: String): Boolean = this.wsSessionId == wsSessionId
 
     suspend fun observe(): ApiError? {
         if (!observationMutex.tryLock()) return ApiError.ServerError("事件连接已经启动。")

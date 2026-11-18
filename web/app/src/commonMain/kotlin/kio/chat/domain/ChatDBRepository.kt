@@ -277,8 +277,8 @@ sealed interface MessageEvent {
 }
 
 private fun ChatUserEntity.toUser() = User(id, username, passwordHash, nickname)
-private fun ChatMessageWithUserEntity.toMessage() = Message(id,
-    User(userId, username, passwordHash, nickname), text, nickname)
+// TODO: query Role.
+private fun ChatMessageWithUserEntity.toMessage() = Message(id, RoomMember(userId, nickname), text, nickname)
 
 private fun ChatRoomEntity.toRoom() = Room(id, name)
 
