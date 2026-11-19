@@ -105,7 +105,7 @@ class ChatServiceImpl : ChatService {
             followRedirects = false
 
             defaultRequest {
-                url("https://133.117.75.202:7879/")
+                url("${BASE_URL}:7879/")
                 contentType(ContentType.Application.Json)
                 accept(ContentType.Application.Json)
             }
@@ -279,7 +279,7 @@ class ChatServiceImpl : ChatService {
     override suspend fun observeUserEvents(
         onEvent: suspend (UserEvent) -> Unit,
     ): ApiError? = tryGetResult {
-        httpClient.webSocket(urlString = "wss://133.117.75.202:7879/events?format=json") {
+        httpClient.webSocket(urlString = "${BASE_WS_URL}:7879/events?format=json") {
             for (frame in incoming) {
                 if (frame is Frame.Text) {
                     onEvent(Json.decodeFromString<UserEvent>(frame.readText()))
@@ -345,6 +345,7 @@ private class CustomCookiesStorage : CookiesStorage {
     override suspend fun get(requestUrl: Url): List<Cookie> {
         val cookieUrl = requestUrl.toString()
             .replaceFirst("wss://", "https://")
+            .replaceFirst("ws://", "http://")
         val cookieString = cookieManager.getCookie(cookieUrl) ?: return emptyList()
         return cookieString.split(";")
             .mapNotNull { item ->

@@ -70,7 +70,7 @@ private class HomeLayoutPresenter(
     val service: ChatService,
     val snackBarController: SnackBarController,
 ) : RetainedPresenter<HomeLayoutState>() {
-    private val rooms = repository.observeRooms().stateInRetainedModel(emptyList())
+    private val rooms = repository.observeRooms(::handleApiError).stateInRetainedModel(emptyList())
     private val requests = repository.observeRoomJoinRequest().stateInRetainedModel(emptyList())
     private var submitting = false
     private var creating = false
@@ -133,6 +133,12 @@ private class HomeLayoutPresenter(
                     HomeUiEvent.OnLogoutClick -> logout()
                 }
             }
+        }
+    }
+
+    private suspend fun handleApiError(error: ApiError) {
+        context(rootNavigator, snackBarController) {
+            handleError(error)
         }
     }
 }

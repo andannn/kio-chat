@@ -143,7 +143,9 @@ private class RoomLayoutPresenter(
     var hasMoreHistory by mutableStateOf(false)
     var isLoadingHistory by mutableStateOf(false)
     private val historyBeforeId: Long? get() = messages.minOfOrNull { it.id }
-    private val voiceParticipants = mutableStateListOf<RoomMember>()
+    private val voiceParticipantsFlow = repository.observeVoiceParticipants(roomId, ::handleApiError)
+        .stateInRetainedModel(emptyList())
+
     private var isVoiceBusy by mutableStateOf(false)
 
     init {
@@ -154,32 +156,6 @@ private class RoomLayoutPresenter(
 
     context(_: RootNavigator, _: SnackBarController)
     private fun init() {
-        retainedScope.launch {
-            eventSource.events
-                .onSubscription {
-                    val (result, error) = service.getVoiceParticipants(roomId)
-                    if (error != null) {
-                        handleError(error)
-                        return@onSubscription
-                    }
-                    voiceParticipants.addAll(result!!)
-                }
-                .filterIsInstance<VoiceParticipantsEvent>()
-                .filter { it.roomId == roomId }
-                .collect { event ->
-                    when(event) {
-                        is VoiceParticipantsEvent.Added -> {
-                            if (voiceParticipants.none { it.userId == event.member.userId }) {
-                                voiceParticipants.add(event.member)
-                            }
-                        }
-                        is VoiceParticipantsEvent.Removed -> {
-                            voiceParticipants.removeIf { it.userId == event.userId }
-                        }
-                    }
-                }
-        }
-
         retainedScope.launch {
             eventSource.events
                 .onSubscription {
@@ -283,6 +259,7 @@ private class RoomLayoutPresenter(
     override fun present(): RoomLayoutState {
         val roomState by roomFlow.collectAsStateWithLifecycle()
         val voiceCall by voiceRepository.callState.collectAsStateWithLifecycle()
+        val voiceParticipants by voiceParticipantsFlow.collectAsStateWithLifecycle()
         context(rootNavigator, snackBarController) {
             return RoomLayoutState(
                 room = roomState,
@@ -312,6 +289,12 @@ private class RoomLayoutPresenter(
                     }
                 }
             }
+        }
+    }
+
+    private suspend fun handleApiError(error: ApiError) {
+        context(rootNavigator, snackBarController) {
+            handleError(error)
         }
     }
 }
