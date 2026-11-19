@@ -116,6 +116,11 @@ class MockRepositoryImpl : Repository, WsSessionRepository by InMemoryWsSessionR
         users.values.filter { (roomId to it.id) in roomMembers }
             .sortedBy { it.id }.map { RoomMember(it.id, it.nickname, roomMembers.getValue(roomId to it.id)) }
 
+    override suspend fun getRoomMemberById(roomId: Long, userId: Long) =
+         users.values.filter { (roomId to it.id) in roomMembers && userId == it.id }
+            .sortedBy { it.id }.map { RoomMember(it.id, it.nickname, roomMembers.getValue(roomId to it.id)) }
+            .firstOrNull()
+
     override suspend fun isRoomMember(roomId: Long, userId: Long): Boolean =
         (roomId to userId) in roomMembers
 

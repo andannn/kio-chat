@@ -129,10 +129,6 @@ sealed interface VoiceParticipantsEvent : UserEvent {
 @Serializable
 sealed interface RoomListEvent: UserEvent {
     @Serializable
-    @SerialName("rooms_initial")
-    data class Initial(val rooms: List<Room>): RoomListEvent
-
-    @Serializable
     @SerialName("room_deleted")
     data class Deleted(val roomId: Long): RoomListEvent
 
