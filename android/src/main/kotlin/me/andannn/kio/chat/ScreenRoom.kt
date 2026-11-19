@@ -37,12 +37,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.EntryProviderScope
 import androidx.navigation3.runtime.NavKey
 import kio.chat.domain.Message
-import kio.chat.domain.User
 import kio.chat.domain.Room
 import kio.chat.domain.RoomMember
-import kio.chat.domain.VoiceParticipantsEvent
 import kio.chat.domain.UserChatEvent
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.onEach
@@ -51,7 +48,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.onSubscription
 import me.andannn.kio.chat.util.LocalSnackBarController
@@ -79,9 +75,9 @@ private fun retainRoomState(
     room: Room,
     service: ChatService = getKoin().get(),
     userEventSource: UserEventSource = getKoin().get(),
-    repository: UserRepository = LocalUserRepository.current,
+    repository: UserRepository = getKoin().get(),
     snackBarController: SnackBarController = LocalSnackBarController.current,
-    voiceRepository: VoiceCallRepository = LocalVoiceCallRepository.current,
+    voiceRepository: VoiceCallRepository = getKoin().get(),
 ) = retainPresenter(rootNavigator, navigator, room.id, service, userEventSource, repository, snackBarController, voiceRepository) {
     RoomLayoutPresenter(rootNavigator, navigator, room, service, userEventSource, repository, snackBarController, voiceRepository)
 }
@@ -131,7 +127,7 @@ private class RoomLayoutPresenter(
 
     private val roomId = room.id
 
-    private val roomFlow = repository.observeRoomById(room.id)
+    private val roomFlow = repository.observeRoomChangedById(room.id)
         .onEach { if (it == null) navigator.clearTopAndGoToHome() }
         .filterNotNull()
         .stateInRetainedModel(room)

@@ -5,7 +5,6 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.util.Log
-import androidx.compose.runtime.compositionLocalOf
 import kio.chat.domain.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,8 +14,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.webrtc.*
 import org.webrtc.audio.JavaAudioDeviceModule
-
-val LocalVoiceCallRepository = compositionLocalOf<VoiceCallRepository> { error("no Local VoiceCallRepository") }
 
 data class VoiceCallState(val roomId: Long? = null, val muted: Boolean = true)
 
