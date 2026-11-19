@@ -31,8 +31,8 @@ suspend fun CallContext.chatMainPage(roomId: Long? = null) {
             attributes["hx-on:htmx:oob-before-swap"] = "filterUserEventSwap(event)"
             aside(classes = "sidebar") {
                 attributes["hx-ext"] = "ws"
-                attributes["ws-connect"] = "/events?selectedRoomId=${roomId?.toString().orEmpty()}"
-                roomAsideMenu()
+                attributes["ws-connect"] = "/events"
+                roomAsideMenu(roomId)
             }
             main(classes = "chat-layout") {
                 id = "room-content"

@@ -45,7 +45,7 @@ private fun retainRoomSettingState(
     navigator: MainNavigator,
     room: Room,
     service: ChatService = getKoin().get(),
-    repository: UserRepository = LocalUserRepository.current,
+    repository: UserRepository = getKoin().get(),
     snackBarController: SnackBarController = LocalSnackBarController.current,
 ) = retainPresenter(rootNavigator, navigator, room.id, service, repository, snackBarController) {
     RoomSettingLayoutPresenter(rootNavigator, navigator, room, service, repository, snackBarController)
@@ -77,7 +77,7 @@ private class RoomSettingLayoutPresenter(
     repository: UserRepository,
     val snackBarController: SnackBarController,
 ) : RetainedPresenter<RoomSettingLayoutState>() {
-    private val roomFlow = repository.observeRoomById(room.id)
+    private val roomFlow = repository.observeRoomChangedById(room.id)
         .onEach { if (it == null) navigator.clearTopAndGoToHome() }
         .filterNotNull()
         .stateInRetainedModel(room)

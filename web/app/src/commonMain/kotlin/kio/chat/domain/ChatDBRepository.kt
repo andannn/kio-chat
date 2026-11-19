@@ -1,55 +1,13 @@
 package kio.chat.domain
 
-import kio.chat.database.CreateRoomJoinRequestError
-import kio.chat.database.createRoomJoinRequest
-import kio.chat.database.getRoomJoinRequestById
-import kio.chat.database.getRoomJoinRequests
-import kio.chat.database.approveRoomJoinRequest
-import kio.chat.database.rejectRoomJoinRequest
-import kio.chat.database.ChatRoomJoinRequestWithUserEntity
-import kio.chat.database.getUserRoomList
-import kio.chat.database.getRoomOwners
-import kio.chat.database.getRoomMembers
-import kio.chat.database.isRoomMember
-import kio.chat.database.ChatRoomMemberEntity
-import kio.chat.database.ChatRoomEntity
-import kio.chat.database.createRoomForUser
-import kio.chat.database.getRoomById
-import kio.chat.database.ChatUserEntity
-import kio.chat.database.ChatMessageWithUserEntity
-import kio.chat.database.ChatMessageNotification
-import kio.chat.database.ChatRoomNotification
-import kio.chat.database.ChatRoomMemberNotification
-import kio.chat.database.ChatRoomJoinRequestNotification
-import kio.chat.database.deleteRoom
-import kio.chat.database.updateRoomName
-import kio.chat.database.updateMessage
-import kio.chat.database.deleteMessage
-import kio.chat.database.createMessage
-import kio.chat.database.getMessageList
-import kio.chat.database.getMessageById
-import kio.chat.database.deleteSession
-import kio.chat.database.createSession
-import kio.chat.database.createUser
-import kio.chat.database.getUserByUsername
-import kio.chat.database.getUserIdBySessionId
+import kio.chat.database.*
 import kio.chat.util.hashPassword
 import kio.postgres.conn.PgConnectionPool
 import kio.postgres.conn.useConnection
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onSubscription
 import kotlinx.serialization.json.Json
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.launch
 import kotlin.uuid.Uuid
 
 interface ChatDBRepository {
@@ -68,6 +26,7 @@ interface ChatDBRepository {
     suspend fun createRoom(userId: Long, name: String): Room
     suspend fun getRoomList(userId: Long): List<Room>
     suspend fun getRoomMembers(roomId: Long): List<RoomMember>
+    suspend fun getRoomMemberById(roomId: Long, userId: Long): RoomMember?
     suspend fun isRoomMember(roomId: Long, userId: Long): Boolean
     suspend fun getRoomById(roomId: Long): Room?
     suspend fun updateRoomName(roomId: Long, userId: Long, name: String): Boolean
@@ -123,27 +82,24 @@ class ChatDBRepositoryImpl(
                         val event = notificationJson.decodeFromString<ChatRoomNotification>(notification.message)
                         if (event.operation != "UPDATE") continue
                         val room = pgPool.useConnection { it.getRoomById(event.roomId) } ?: continue
-                        val members = pgPool.useConnection { it.getRoomMembers(event.roomId) }
-                        for ((userId) in members) {
-                            dbMessageEventFlow.emit(MessageEvent.RoomsMessage(userId, RoomListEvent.Changed(room.toRoom())))
-                        }
+                        dbMessageEventFlow.emit(MessageEvent.RoomChangeEvent(RoomListEvent.Changed(room.toRoom())))
                     }
 
                     "room_members" -> {
                         val event = notificationJson.decodeFromString<ChatRoomMemberNotification>(notification.message)
                         val roomEvent = when (event.operation) {
                             "DELETE" -> {
-                                RoomListEvent.Deleted(event.roomId)
+                                MessageEvent.UserRoomDeleteEvent(event.userId, RoomListEvent.Deleted(event.roomId))
                             }
 
                             "INSERT" -> {
                                 val message = pgPool.useConnection { it.getRoomById(event.roomId) } ?: continue
-                                RoomListEvent.Added(message.toRoom())
+                                MessageEvent.UserRoomAddEvent(event.userId, RoomListEvent.Added(message.toRoom()))
                             }
 
                             else -> continue
                         }
-                        dbMessageEventFlow.emit(MessageEvent.RoomsMessage(event.userId, roomEvent))
+                        dbMessageEventFlow.emit(roomEvent)
                     }
 
                     "room_join_requests" -> {
@@ -209,7 +165,7 @@ class ChatDBRepositoryImpl(
         pgPool.useConnection { it.rejectRoomJoinRequest(requestId, ownerId) }
 
     override suspend fun isRoomOwner(roomId: Long, userId: Long): Boolean =
-        getRoomMembers(roomId).any { it.userId == userId && it.role == RoomRole.Owner }
+        getRoomMemberById(roomId, userId)?.role == RoomRole.Owner
 
     override suspend fun createRoom(userId: Long, name: String): Room =
         pgPool.useConnection { it.createRoomForUser(userId, name) }.toRoom()
@@ -219,6 +175,9 @@ class ChatDBRepositoryImpl(
 
     override suspend fun getRoomMembers(roomId: Long): List<RoomMember> =
         pgPool.useConnection { it.getRoomMembers(roomId) }.map { it.toRoomMember() }
+
+    override suspend fun getRoomMemberById(roomId: Long, userId: Long) =
+        pgPool.useConnection { it.getRoomMemberById(roomId, userId) }?.toRoomMember()
 
     override suspend fun isRoomMember(roomId: Long, userId: Long): Boolean =
         pgPool.useConnection { it.isRoomMember(roomId, userId) }
@@ -261,9 +220,22 @@ class ChatDBRepositoryImpl(
 }
 
 sealed interface MessageEvent {
-    data class RoomsMessage(
-        val userId: Long,
-        val event: RoomListEvent
+    sealed interface UserRoomEvent: MessageEvent {
+        val userId: Long
+    }
+
+    data class UserRoomAddEvent(
+        override val userId: Long,
+        val event: RoomListEvent.Added
+    ): UserRoomEvent
+
+    data class UserRoomDeleteEvent(
+        override val userId: Long,
+        val event: RoomListEvent.Deleted
+    ): UserRoomEvent
+
+    data class RoomChangeEvent(
+        val event: RoomListEvent.Changed
     ) : MessageEvent
 
     data class ChatMessageEvent(

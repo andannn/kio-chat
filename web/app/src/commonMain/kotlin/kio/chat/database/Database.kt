@@ -275,6 +275,21 @@ suspend fun PgConnection.getRoomMembers(roomId: Long): List<ChatRoomMemberEntity
         param(roomId, PostgresInt8Serializer)
     }.toList()
 
+suspend fun PgConnection.getRoomMemberById(roomId: Long, userId: Long): ChatRoomMemberEntity? =
+    query<ChatRoomMemberEntity>(
+        """
+        SELECT u.id, u.nickname, rm.role
+        FROM room_members rm
+        JOIN users u ON u.id = rm.user_id
+        WHERE rm.room_id = $1 AND u.id = $2
+        ORDER BY u.id
+        LIMIT 1
+        """.trimIndent()
+    ) {
+        param(roomId, PostgresInt8Serializer)
+        param(userId, PostgresInt8Serializer)
+    }.firstOrNull()
+
 suspend fun PgConnection.getRoomOwners(roomId: Long): List<ChatRoomMemberEntity> =
     query<ChatRoomMemberEntity>(
         """

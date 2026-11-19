@@ -2,96 +2,119 @@ package me.andannn.kio.chat
 
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.compositionLocalOf
-import kio.chat.domain.Message
 import kio.chat.domain.Room
 import kio.chat.domain.RoomJoinRequest
 import kio.chat.domain.RoomJoinRequestEvent
 import kio.chat.domain.RoomListEvent
-import kio.chat.domain.UserChatEvent
-import kotlinx.coroutines.CoroutineScope
+import kio.chat.domain.RoomMember
+import kio.chat.domain.VoiceParticipantsEvent
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.launch
-
-val LocalUserRepository: ProvidableCompositionLocal<UserRepository> =
-    compositionLocalOf { error("no Local UserRepository") }
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onSubscription
 
 interface UserRepository {
-    fun CoroutineScope.startObservingEvents(): Job
-    fun observeRoomById(roomId: Long): Flow<Room?>
-    fun observeRooms(): Flow<List<Room>>
-    fun observeRoomJoinRequest(): Flow<List<RoomJoinRequest>>
-    fun observeChatMessageEvent(roomId: Long): Flow<UserChatEvent>
+    fun observeRoomChangedById(roomId: Long): Flow<Room?>
+    fun observeRooms(onError: suspend (ApiError) -> Unit): Flow<List<Room>>
+    fun observeRoomJoinRequest(onError: suspend (ApiError) -> Unit): Flow<List<RoomJoinRequest>>
+    fun observeVoiceParticipants(roomId: Long, onError: suspend (ApiError) -> Unit): Flow<List<RoomMember>>
 }
 
 class UserRepositoryImpl(
     private val eventSource: UserEventSource,
+    private val service: ChatService,
 ): UserRepository {
-    private val rooms = MutableStateFlow<List<Room>>(emptyList())
-    private val requests = MutableStateFlow<List<RoomJoinRequest>>(emptyList())
+    override fun observeRoomChangedById(roomId: Long): Flow<Room> = eventSource.events
+        .filterIsInstance<RoomListEvent.Changed>()
+        .filter { it.room.id == roomId }
+        .map { it.room }
 
-    override fun CoroutineScope.startObservingEvents(): Job = launch(start = CoroutineStart.UNDISPATCHED) {
-        eventSource.events.collect { event ->
-            when (event) {
-                is RoomListEvent -> handleRoomListEvent(event)
-                is RoomJoinRequestEvent -> handleRoomJoinRequestEvent(event)
-                else -> Unit
+    override fun observeRooms(onError: suspend (ApiError) -> Unit): Flow<List<Room>> = flow {
+        val rooms = mutableListOf<Room>()
+        eventSource.events
+            .onSubscription {
+                val (result, error) = service.getRoomList()
+                if (error != null) {
+                    onError(error)
+                    return@onSubscription
+                }
+                rooms.addAll(result!!)
+                emit(rooms.toList())
             }
-        }
-    }
+            .filterIsInstance<RoomListEvent>()
+            .collect { event ->
+                when(event) {
+                    is RoomListEvent.Added -> {
+                        if (rooms.none { it.id == event.room.id }) {
+                            rooms.add(event.room)
+                        }
+                    }
+                    is RoomListEvent.Deleted -> {
+                        rooms.removeIf { it.id == event.roomId }
+                    }
 
-    override fun observeRoomById(roomId: Long): Flow<Room?> {
-        return rooms.map { list ->
-            list.firstOrNull { it.id == roomId }
-        }
-    }
-
-    override fun observeRooms(): Flow<List<Room>> = rooms
-
-    override fun observeRoomJoinRequest(): Flow<List<RoomJoinRequest>> = requests
-
-    override fun observeChatMessageEvent(roomId: Long): Flow<UserChatEvent> =
-        eventSource.events.filterIsInstance<UserChatEvent>().filter { it.roomId == roomId }
-
-    private fun handleRoomListEvent(event: RoomListEvent) {
-        when (event) {
-            is RoomListEvent.Initial -> {
-                rooms.value = event.rooms
-            }
-            is RoomListEvent.Added -> rooms.value += event.room
-            is RoomListEvent.Deleted -> {
-                rooms.value = rooms.value.filterNot { it.id == event.roomId }
-                requests.value = requests.value.filterNot { it.roomId == event.roomId }
-            }
-            is RoomListEvent.Changed -> {
-                rooms.value = rooms.value.map {
-                    if (it.id == event.room.id) {
-                        event.room
-                    } else {
-                        it
+                    is RoomListEvent.Changed -> {
+                        val index = rooms.indexOfFirst { it.id == event.room.id }
+                        if (index != -1) rooms[index] = event.room
                     }
                 }
+                emit(rooms.toList())
             }
-        }
     }
 
-    private fun handleRoomJoinRequestEvent(event: RoomJoinRequestEvent) {
-        when (event) {
-            is RoomJoinRequestEvent.Initial -> {
-                requests.value = event.requests
+    override fun observeRoomJoinRequest(onError: suspend (ApiError) -> Unit): Flow<List<RoomJoinRequest>> = flow {
+        val requests = mutableListOf<RoomJoinRequest>()
+        eventSource.events
+            .onSubscription {
+                val (result, error) = service.getRoomJoinRequests()
+                if (error != null) {
+                    onError(error)
+                    return@onSubscription
+                }
+                requests.addAll(result.orEmpty().distinctBy { it.id })
+                this@flow.emit(requests.toList())
             }
-            is RoomJoinRequestEvent.Added -> {
-                requests.value += event.request
+            .filterIsInstance<RoomJoinRequestEvent>()
+            .collect { event ->
+                when (event) {
+                    is RoomJoinRequestEvent.Added -> {
+                        val index = requests.indexOfFirst { it.id == event.request.id }
+                        if (index < 0) requests.add(event.request) else requests[index] = event.request
+                    }
+                    is RoomJoinRequestEvent.Removed -> requests.removeAll { it.id == event.requestId }
+                }
+                emit(requests.toList())
             }
-            is RoomJoinRequestEvent.Removed -> {
-                requests.value = requests.value.filterNot { it.id == event.requestId }
+    }
+
+    override fun observeVoiceParticipants(roomId: Long, onError: suspend (ApiError) -> Unit): Flow<List<RoomMember>> = flow {
+        val voiceParticipants = mutableListOf<RoomMember>()
+        eventSource.events
+            .onSubscription {
+                val (result, error) = service.getVoiceParticipants(roomId)
+                if (error != null) {
+                    onError(error)
+                    return@onSubscription
+                }
+                voiceParticipants.addAll(result!!)
+                emit(voiceParticipants.toList())
             }
-        }
+            .filterIsInstance<VoiceParticipantsEvent>()
+            .filter { it.roomId == roomId }
+            .collect { event ->
+                when(event) {
+                    is VoiceParticipantsEvent.Added -> {
+                        if (voiceParticipants.none { it.userId == event.member.userId }) {
+                            voiceParticipants.add(event.member)
+                        }
+                    }
+                    is VoiceParticipantsEvent.Removed -> {
+                        voiceParticipants.removeIf { it.userId == event.userId }
+                    }
+                }
+                emit(voiceParticipants.toList())
+            }
     }
 }

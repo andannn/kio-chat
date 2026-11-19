@@ -1,13 +1,14 @@
 package kio.chat
 
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.HttpHeaders
 import kio.chat.components.roomJoinRequestList
 import kio.chat.database.CreateRoomJoinRequestError
 import kio.chat.domain.Repository
+import kio.chat.util.json
 import kio.chat.util.respondByContentType
 import kio.http.*
 import kotlinx.html.div
-import kotlinx.serialization.json.Json
 
 context(repo: Repository)
 fun Route.roomJoinRequestsRoute() {
@@ -42,7 +43,7 @@ private suspend fun CallContext.handleGetJoinRequests() {
     val requests = repo.getRoomJoinRequests(requireSession().userId)
     respondByContentType(
         status = HttpStatusCode.OK,
-        buildJson = { Json.encodeToString(requests) },
+        buildJson = { json(requests) },
         buildHtml = { roomJoinRequestList(requests) },
     )
 }
@@ -71,7 +72,7 @@ private suspend fun CallContext.handleReviewJoinRequest(approve: Boolean) {
 private suspend fun CallContext.respondJoinResult(status: HttpStatusCode, message: String) {
     respondByContentType(
         status = status,
-        buildJson = { Json.encodeToString(message) },
+        buildJson = { json(message) },
         buildHtml = { div { +message } },
     )
 }

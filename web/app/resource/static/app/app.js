@@ -28,6 +28,13 @@ function toggleRoomMembers(button) {
 
 function filterUserEventSwap(event) {
     const target = event.detail.target;
+    if (target.id === "room-list-items" || target.id === "room-join-requests") {
+        const item = event.detail.fragment.querySelector(".room-item, .join-request");
+        if (item && document.getElementById(item.id)) {
+            event.detail.shouldSwap = false;
+            return;
+        }
+    }
     if (target.classList.contains("room-item") && !event.detail.fragment.childNodes.length) {
         const roomId = target.id.slice("room-link-".length);
         document.querySelectorAll(`.join-request[data-room-id="${roomId}"]`).forEach(request => request.remove());
@@ -257,6 +264,10 @@ document.addEventListener("htmx:wsBeforeMessage", (event) => {
     if (message.type === "ws_session_ready") {
         event.preventDefault();
         wsSessionId = message.wsSessionId;
+        const rooms = document.getElementById("room-list-items");
+        if (rooms) htmx.trigger(rooms, "refresh");
+        const requests = document.getElementById("room-join-requests");
+        if (requests) htmx.trigger(requests, "refresh");
         const panel = document.querySelector("[data-voice-participants]");
         if (panel) htmx.trigger(panel, "refresh");
         return;

@@ -5,44 +5,21 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.util.Log
-import androidx.compose.runtime.compositionLocalOf
-import kio.chat.domain.RoomMember
-import kio.chat.domain.RtcIceCandidate
-import kio.chat.domain.VoiceCallMessage
-import kio.chat.domain.VoiceCallRequest
-import kio.chat.domain.VoiceParticipantsEvent
-import kio.chat.domain.VoiceSignalingEvent
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.flow.Flow
+import kio.chat.domain.*
+import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-import org.webrtc.AudioSource
-import org.webrtc.AudioTrack
-import org.webrtc.MediaConstraints
-import org.webrtc.PeerConnection
-import org.webrtc.PeerConnectionFactory
+import org.webrtc.*
 import org.webrtc.audio.JavaAudioDeviceModule
 
-val LocalVoiceCallRepository = compositionLocalOf<VoiceCallRepository> { error("no Local VoiceCallRepository") }
-
-data class VoiceCallState(val roomId: Long? = null, val muted: Boolean = false)
+data class VoiceCallState(val roomId: Long? = null, val muted: Boolean = true)
 
 interface VoiceCallRepository {
     fun CoroutineScope.startObservingEvents(): Job
     val callState: StateFlow<VoiceCallState>
-    suspend fun getParticipants(roomId: Long): ApiResult<List<RoomMember>>
-    fun observeParticipantEvents(roomId: Long): Flow<VoiceParticipantsEvent>
     // The UI obtains microphone permission before joining.
     suspend fun join(roomId: Long): ApiError?
     suspend fun leave(): ApiError?
@@ -95,11 +72,6 @@ class VoiceCallRepositoryImpl(
             withContext(NonCancellable) { mutex.withLock { closeLocal() } }
         }
     }
-
-    override suspend fun getParticipants(roomId: Long) = service.getVoiceParticipants(roomId)
-
-    override fun observeParticipantEvents(roomId: Long): Flow<VoiceParticipantsEvent> =
-        eventSource.events.filterIsInstance<VoiceParticipantsEvent>().filter { it.roomId == roomId }
 
     override suspend fun join(roomId: Long): ApiError? = mutex.withLock {
         val wsSessionId = eventSource.wsSessionId ?: return@withLock ApiError.ServerError("语音连接尚未就绪。")
@@ -239,7 +211,7 @@ class VoiceCallRepositoryImpl(
         val device = JavaAudioDeviceModule.builder(context).createAudioDeviceModule().also { audioDevice = it }
         val peerFactory = PeerConnectionFactory.builder().setAudioDeviceModule(device).createPeerConnectionFactory().also { factory = it }
         val source = peerFactory.createAudioSource(MediaConstraints()).also { audioSource = it }
-        audioTrack = peerFactory.createAudioTrack("voice", source)
+        audioTrack = peerFactory.createAudioTrack("voice", source).also { it.setEnabled(false) }
     }
 
     private fun closeLocal() {

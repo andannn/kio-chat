@@ -43,6 +43,7 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.client.call.body
 import io.ktor.client.request.parameter
 import kio.chat.domain.Room
+import kio.chat.domain.RoomJoinRequest
 import kio.chat.domain.AppVersion
 import kio.chat.domain.UserEvent
 import kio.chat.domain.RoomMembersPage
@@ -73,6 +74,8 @@ interface ChatService {
     suspend fun getMessageHistory(roomId: Long, beforeId: Long): ApiResult<MessagePage>
     suspend fun logout(): ApiResult<Unit>
     suspend fun createRoom(name: String): ApiResult<Room>
+    suspend fun getRoomList(): ApiResult<List<Room>>
+    suspend fun getRoomJoinRequests(): ApiResult<List<RoomJoinRequest>>
     suspend fun disbandRoom(roomId: Long): ApiResult<Unit>
     suspend fun renameRoom(roomId: Long, name: String): ApiResult<Unit>
     suspend fun getRoomMembers(roomId: Long): ApiResult<RoomMembersPage>
@@ -89,6 +92,11 @@ interface ChatService {
 
 data class ApiResult<T>(val value: T?, val error: ApiError?)
 
+//private const val BASE_URL = "http://127.0.0.1"
+//private const val BASE_WS_URL = "ws://127.0.0.1"
+private const val BASE_URL = "https://133.117.75.202"
+private const val BASE_WS_URL = "wss://133.117.75.202"
+
 class ChatServiceImpl : ChatService {
     private val httpClient =
         HttpClient(OkHttp) {
@@ -102,7 +110,7 @@ class ChatServiceImpl : ChatService {
             followRedirects = false
 
             defaultRequest {
-                url("https://133.117.75.202:7879/")
+                url("${BASE_URL}:7879/")
                 contentType(ContentType.Application.Json)
                 accept(ContentType.Application.Json)
             }
@@ -214,6 +222,18 @@ class ChatServiceImpl : ChatService {
         }.body<Room>()
     }
 
+    override suspend fun getRoomList(): ApiResult<List<Room>> = tryGetResult {
+        httpClient.get("/rooms") {
+            headers.append(HttpHeaders.CacheControl, "no-store")
+        }.body<List<Room>>()
+    }
+
+    override suspend fun getRoomJoinRequests(): ApiResult<List<RoomJoinRequest>> = tryGetResult {
+        httpClient.get("/rooms/join-requests") {
+            headers.append(HttpHeaders.CacheControl, "no-store")
+        }.body<List<RoomJoinRequest>>()
+    }
+
     override suspend fun disbandRoom(roomId: Long): ApiResult<Unit> = tryGetResult {
         httpClient.delete("/rooms/$roomId")
     }
@@ -264,7 +284,7 @@ class ChatServiceImpl : ChatService {
     override suspend fun observeUserEvents(
         onEvent: suspend (UserEvent) -> Unit,
     ): ApiError? = tryGetResult {
-        httpClient.webSocket(urlString = "wss://133.117.75.202:7879/events?format=json") {
+        httpClient.webSocket(urlString = "${BASE_WS_URL}:7879/events?format=json") {
             for (frame in incoming) {
                 if (frame is Frame.Text) {
                     onEvent(Json.decodeFromString<UserEvent>(frame.readText()))
@@ -306,8 +326,6 @@ class ChatServiceImpl : ChatService {
     override suspend fun checkLogin(): ApiResult<Unit> = tryGetResult {
         httpClient.get("/")
     }
-
-
 }
 
 private suspend inline fun <reified T> tryGetResult(block: () -> T): ApiResult<T> =
@@ -332,6 +350,7 @@ private class CustomCookiesStorage : CookiesStorage {
     override suspend fun get(requestUrl: Url): List<Cookie> {
         val cookieUrl = requestUrl.toString()
             .replaceFirst("wss://", "https://")
+            .replaceFirst("ws://", "http://")
         val cookieString = cookieManager.getCookie(cookieUrl) ?: return emptyList()
         return cookieString.split(";")
             .mapNotNull { item ->
