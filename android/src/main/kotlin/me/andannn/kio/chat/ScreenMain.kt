@@ -43,7 +43,7 @@ fun EntryProviderScope<NavKey>.mainEntry(rootNavigator: RootNavigator) {
         val eventSource = getKoin().get<UserEventSource>()
         val service = getKoin().get<ChatService>()
         val context = LocalContext.current.applicationContext
-        val userRepository: UserRepository = retain(eventSource) { UserRepositoryImpl(eventSource) }
+        val userRepository: UserRepository = retain(eventSource, service) { UserRepositoryImpl(eventSource, service) }
         val voiceRepository: VoiceCallRepository = retain(context, service, eventSource) {
             VoiceCallRepositoryImpl(context, service, eventSource)
         }
@@ -71,7 +71,9 @@ private class MainLayoutPresenter(
 
     init {
         // Subscribe before opening the socket so initial events have consumers.
-        val userJob = with(userRepository) { retainedScope.startObservingEvents() }
+        val userJob = with(userRepository) {
+            retainedScope.startObservingEvents { connectionError = it }
+        }
         val voiceJob = with(voiceRepository) { retainedScope.startObservingEvents() }
         retainedScope.launch {
             val error = try {

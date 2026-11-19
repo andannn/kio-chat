@@ -51,6 +51,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.onSubscription
 import me.andannn.kio.chat.util.LocalSnackBarController
@@ -64,6 +65,7 @@ import me.andannn.kio.chat.util.stateInRetainedModel
 import me.andannn.kio.chat.widget.MessageItem
 
 private const val TAG = "ScreenRoom"
+
 fun EntryProviderScope<NavKey>.roomEntry(rootNavigator: RootNavigator, navigator: MainNavigator) {
     entry<MainScreen.RoomChat> { screen ->
         RoomUi(rootNavigator, navigator, screen.room)
@@ -108,7 +110,6 @@ private data class RoomLayoutState(
     val message: String = "",
     val voiceParticipants: List<RoomMember> = emptyList(),
     val voiceCall: VoiceCallState = VoiceCallState(),
-    val isLoadingVoiceParticipants: Boolean = false,
     val isVoiceBusy: Boolean = false,
     val eventSink: (RoomUiEvent) -> Unit = {},
 )
@@ -143,29 +144,49 @@ private class RoomLayoutPresenter(
     var isLoadingHistory by mutableStateOf(false)
     private val historyBeforeId: Long? get() = messages.minOfOrNull { it.id }
     private val voiceParticipants = mutableStateListOf<RoomMember>()
-    private val pendingVoiceEvents = mutableListOf<VoiceParticipantsEvent>()
-    private var isLoadingVoiceParticipants by mutableStateOf(false)
     private var isVoiceBusy by mutableStateOf(false)
 
     init {
-        retainedScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            voiceRepository.observeParticipantEvents(roomId).collect { event ->
-                if (isLoadingVoiceParticipants) pendingVoiceEvents.add(event)
-                else applyVoiceEvent(event)
-            }
+        context(rootNavigator, snackBarController) {
+            init()
         }
+    }
 
-        loadVoiceParticipants()
+    context(_: RootNavigator, _: SnackBarController)
+    private fun init() {
+        retainedScope.launch {
+            eventSource.events
+                .onSubscription {
+                    val (result, error) = service.getVoiceParticipants(roomId)
+                    if (error != null) {
+                        handleError(error)
+                        return@onSubscription
+                    }
+                    voiceParticipants.addAll(result!!)
+                }
+                .filterIsInstance<VoiceParticipantsEvent>()
+                .filter { it.roomId == roomId }
+                .collect { event ->
+                    when(event) {
+                        is VoiceParticipantsEvent.Added -> {
+                            if (voiceParticipants.none { it.userId == event.member.userId }) {
+                                voiceParticipants.add(event.member)
+                            }
+                        }
+                        is VoiceParticipantsEvent.Removed -> {
+                            voiceParticipants.removeIf { it.userId == event.userId }
+                        }
+                    }
+                }
+        }
 
         retainedScope.launch {
             eventSource.events
                 .onSubscription {
                     val (page, error) = service.getMessageHistory(roomId, beforeId = Long.MAX_VALUE)
-                    context(rootNavigator, snackBarController) {
-                        if (error != null) {
-                            handleError(error)
-                            return@onSubscription
-                        }
+                    if (error != null) {
+                        handleError(error)
+                        return@onSubscription
                     }
 
                     userId = page!!.userId
@@ -193,49 +214,17 @@ private class RoomLayoutPresenter(
         }
     }
 
-    private fun applyVoiceEvent(event: VoiceParticipantsEvent) {
-        when (event) {
-            is VoiceParticipantsEvent.Added -> {
-                val index = voiceParticipants.indexOfFirst { it.userId == event.member.userId }
-                if (index < 0) voiceParticipants.add(event.member) else voiceParticipants[index] = event.member
-            }
-            is VoiceParticipantsEvent.Removed -> voiceParticipants.removeAll { it.userId == event.userId }
-        }
-    }
-
-    private fun loadVoiceParticipants() {
-        if (isLoadingVoiceParticipants) return
-        isLoadingVoiceParticipants = true
-        retainedScope.launch {
-            val (members, error) = try {
-                voiceRepository.getParticipants(roomId)
-            } finally {
-                isLoadingVoiceParticipants = false
-            }
-            if (members != null) {
-                voiceParticipants.clear()
-                voiceParticipants.addAll(members.distinctBy { it.userId })
-            }
-            pendingVoiceEvents.forEach(::applyVoiceEvent)
-            pendingVoiceEvents.clear()
-            context(rootNavigator, snackBarController) {
-                if (error != null) handleError(error)
-            }
-        }
-    }
-
+    context(_: RootNavigator, _: SnackBarController)
     private fun changeVoice(action: suspend () -> ApiError?) {
         if (isVoiceBusy) return
         isVoiceBusy = true
         retainedScope.launch {
             val error = try { action() } finally { isVoiceBusy = false }
-            context(rootNavigator, snackBarController) {
-                if (error != null) handleError(error)
-            }
+            if (error != null) handleError(error)
         }
     }
 
-    context(rootNavigator: RootNavigator, snackBar: SnackBarController)
+    context(_: RootNavigator, _: SnackBarController)
     private fun loadHistory() {
         val beforeId = historyBeforeId ?: return
         if (isLoadingHistory || !hasMoreHistory) return
@@ -257,7 +246,7 @@ private class RoomLayoutPresenter(
         }
     }
 
-    context(rootNavigator: RootNavigator, snackBar: SnackBarController)
+    context(_: RootNavigator, _: SnackBarController)
     private fun sendMessage() {
         val content = currentInput.trim()
         if (content.isNotEmpty() && content.length <= 2000) {
@@ -272,17 +261,17 @@ private class RoomLayoutPresenter(
         }
     }
 
-    context(rootNavigator: RootNavigator, snackBar: SnackBarController)
+    context(_: RootNavigator, _: SnackBarController)
     private fun updateMessage(messageId: Long, content: String) {
         val text = content.trim()
-        if (text.isEmpty() || text.length > 2000) return
+        if (text.isEmpty()) return
         retainedScope.launch {
             val (_, error) = service.updateMessage(roomId, messageId, text)
             if (error != null) handleError(error)
         }
     }
 
-    context(rootNavigator: RootNavigator, snackBar: SnackBarController)
+    context(_: RootNavigator, _: SnackBarController)
     private fun deleteMessage(messageId: Long) {
         retainedScope.launch {
             val (_, error) = service.deleteMessage(roomId, messageId)
@@ -305,7 +294,6 @@ private class RoomLayoutPresenter(
                 message = currentInput,
                 voiceParticipants = voiceParticipants,
                 voiceCall = voiceCall,
-                isLoadingVoiceParticipants = isLoadingVoiceParticipants,
                 isVoiceBusy = isVoiceBusy,
             ) { event ->
                 when (event) {

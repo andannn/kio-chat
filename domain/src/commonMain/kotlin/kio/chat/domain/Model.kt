@@ -45,12 +45,6 @@ sealed interface UserEvent
 @Serializable
 sealed interface RoomJoinRequestEvent: UserEvent {
     @Serializable
-    @SerialName("initial")
-    data class Initial(
-        val requests: List<RoomJoinRequest>,
-    ) : RoomJoinRequestEvent
-
-    @Serializable
     @SerialName("added")
     data class Added(
         val request: RoomJoinRequest,

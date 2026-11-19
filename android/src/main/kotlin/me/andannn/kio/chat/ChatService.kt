@@ -43,6 +43,7 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.client.call.body
 import io.ktor.client.request.parameter
 import kio.chat.domain.Room
+import kio.chat.domain.RoomJoinRequest
 import kio.chat.domain.AppVersion
 import kio.chat.domain.UserEvent
 import kio.chat.domain.RoomMembersPage
@@ -73,6 +74,8 @@ interface ChatService {
     suspend fun getMessageHistory(roomId: Long, beforeId: Long): ApiResult<MessagePage>
     suspend fun logout(): ApiResult<Unit>
     suspend fun createRoom(name: String): ApiResult<Room>
+    suspend fun getRoomList(): ApiResult<List<Room>>
+    suspend fun getRoomJoinRequests(): ApiResult<List<RoomJoinRequest>>
     suspend fun disbandRoom(roomId: Long): ApiResult<Unit>
     suspend fun renameRoom(roomId: Long, name: String): ApiResult<Unit>
     suspend fun getRoomMembers(roomId: Long): ApiResult<RoomMembersPage>
@@ -214,6 +217,18 @@ class ChatServiceImpl : ChatService {
         }.body<Room>()
     }
 
+    override suspend fun getRoomList(): ApiResult<List<Room>> = tryGetResult {
+        httpClient.get("/rooms") {
+            headers.append(HttpHeaders.CacheControl, "no-store")
+        }.body<List<Room>>()
+    }
+
+    override suspend fun getRoomJoinRequests(): ApiResult<List<RoomJoinRequest>> = tryGetResult {
+        httpClient.get("/rooms/join-requests") {
+            headers.append(HttpHeaders.CacheControl, "no-store")
+        }.body<List<RoomJoinRequest>>()
+    }
+
     override suspend fun disbandRoom(roomId: Long): ApiResult<Unit> = tryGetResult {
         httpClient.delete("/rooms/$roomId")
     }
@@ -306,8 +321,6 @@ class ChatServiceImpl : ChatService {
     override suspend fun checkLogin(): ApiResult<Unit> = tryGetResult {
         httpClient.get("/")
     }
-
-
 }
 
 private suspend inline fun <reified T> tryGetResult(block: () -> T): ApiResult<T> =

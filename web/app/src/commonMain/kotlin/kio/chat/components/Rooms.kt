@@ -1,6 +1,5 @@
 package kio.chat.components
 
-import kio.chat.domain.Message
 import kio.chat.domain.RoomJoinRequest
 import kio.chat.domain.RoomRole
 import kio.chat.domain.RoomMember
@@ -9,7 +8,7 @@ import kio.chat.domain.Room
 import kio.chat.util.*
 import kotlinx.html.*
 
-fun TagConsumer<*>.roomAsideMenu() {
+fun TagConsumer<*>.roomAsideMenu(selectedRoomId: Long? = null) {
     header(classes = "sidebar-header") {
         h1(classes = "sidebar-title") { +"Kio Chat" }
         p(classes = "section-title") { +"聊天室" }
@@ -36,7 +35,14 @@ fun TagConsumer<*>.roomAsideMenu() {
     }
     nav(classes = "sidebar-content") {
         attributes["aria-label"] = "聊天室"
-        div { id = "room-list-items" }
+        div {
+            id = "room-list-items"
+            hxGet = "/rooms?selectedRoomId=${selectedRoomId?.toString().orEmpty()}"
+            hxTrigger = "refresh"
+            hxSwap = "innerHTML"
+            attributes["hx-headers"] = """{"Accept":"text/html"}"""
+            attributes["hx-sync"] = "this:replace"
+        }
     }
     footer(classes = "sidebar-footer") {
         roomJoinRequestsButton()
@@ -328,7 +334,14 @@ private fun TagConsumer<*>.roomJoinRequestsDialog() {
             id = "join-request-result"
             attributes["aria-live"] = "polite"
         }
-        div { id = "room-join-requests" }
+        div {
+            id = "room-join-requests"
+            hxGet = "/rooms/join-requests"
+            hxTrigger = "refresh"
+            hxSwap = "innerHTML"
+            attributes["hx-headers"] = """{"Accept":"text/html"}"""
+            attributes["hx-sync"] = "this:replace"
+        }
     }
 }
 
@@ -360,14 +373,6 @@ private fun TagConsumer<*>.roomJoinRequestItem(request: RoomJoinRequest) {
     }
 }
 
-fun TagConsumer<*>.roomJoinRequestInitial(requests: List<RoomJoinRequest>) {
-    div {
-        id = "room-join-requests"
-        hxSwapOob = "innerHTML"
-        roomJoinRequestList(requests)
-    }
-}
-
 fun TagConsumer<*>.roomJoinRequestAdded(request: RoomJoinRequest) {
     div {
         id = "room-join-requests"
@@ -380,14 +385,6 @@ fun TagConsumer<*>.roomJoinRequestRemoved(requestId: Long) {
     div {
         id = "join-request-$requestId"
         hxSwapOob = "delete"
-    }
-}
-
-fun TagConsumer<*>.roomListInitial(rooms: List<Room>, selectedRoomId: Long?) {
-    div {
-        id = "room-list-items"
-        hxSwapOob = "innerHTML"
-        roomList(rooms, selectedRoomId)
     }
 }
 

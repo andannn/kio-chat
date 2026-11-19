@@ -1,6 +1,7 @@
 package kio.chat
 
 import io.ktor.http.HttpStatusCode
+import io.ktor.http.HttpHeaders
 import kio.chat.components.roomJoinRequestList
 import kio.chat.database.CreateRoomJoinRequestError
 import kio.chat.domain.Repository

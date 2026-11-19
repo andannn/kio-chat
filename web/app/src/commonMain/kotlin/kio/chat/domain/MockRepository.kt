@@ -17,7 +17,6 @@ class MockRepositoryImpl : Repository, WsSessionRepository by InMemoryWsSessionR
     private val roomMembers = mutableMapOf((1L to 1L) to RoomRole.Owner)
     private val messageEventFlow = MutableSharedFlow<MessageEvent>(extraBufferCapacity = 64)
     private val joinRequests = mutableListOf<RoomJoinRequest>()
-    private val joinRequestFlow = MutableSharedFlow<Pair<Long, RoomJoinRequestEvent>>(extraBufferCapacity = 64)
     private var nextJoinRequestId = 1L
     private var nextRoomId = 2L
     private val messageRooms = mutableMapOf<Long, Long>()
@@ -68,7 +67,7 @@ class MockRepositoryImpl : Repository, WsSessionRepository by InMemoryWsSessionR
         return Room(nextRoomId++, name).also {
             rooms.add(it)
             roomMembers[it.id to userId] = RoomRole.Owner
-            messageEventFlow.emit(MessageEvent.RoomsMessage(userId, RoomListEvent.Added(it)))
+            messageEventFlow.emit(MessageEvent.UserRoomAddEvent(userId, RoomListEvent.Added(it)))
         }
     }
 
@@ -92,7 +91,7 @@ class MockRepositoryImpl : Repository, WsSessionRepository by InMemoryWsSessionR
         val request = joinRequests.find { it.id == requestId } ?: return false
         if (!isRoomOwner(request.roomId, ownerId)) return false
         roomMembers.getOrPut(request.roomId to request.userId) { RoomRole.Member }
-        messageEventFlow.emit(MessageEvent.RoomsMessage(request.userId, RoomListEvent.Added(requireNotNull(getRoomById(request.roomId)))))
+        messageEventFlow.emit(MessageEvent.UserRoomAddEvent(request.userId, RoomListEvent.Added(requireNotNull(getRoomById(request.roomId)))))
         joinRequests.remove(request)
         emitJoinRequestEvent(request.roomId, RoomJoinRequestEvent.Removed(request.id))
         return true
@@ -136,7 +135,7 @@ class MockRepositoryImpl : Repository, WsSessionRepository by InMemoryWsSessionR
         messageIds.forEach { messageRooms.remove(it) }
         joinRequests.removeAll { it.roomId == roomId }
         for ((_, memberUserId) in members) {
-            messageEventFlow.emit(MessageEvent.RoomsMessage(memberUserId, RoomListEvent.Deleted(roomId)))
+            messageEventFlow.emit(MessageEvent.UserRoomDeleteEvent(memberUserId, RoomListEvent.Deleted(roomId)))
         }
         return true
     }
@@ -151,16 +150,13 @@ class MockRepositoryImpl : Repository, WsSessionRepository by InMemoryWsSessionR
         if (index < 0) return false
         val room = rooms[index].copy(name = name)
         rooms[index] = room
-        val members = roomMembers.keys.filter { it.first == roomId }
-        for ((_, memberUserId) in members) {
-            messageEventFlow.emit(MessageEvent.RoomsMessage(memberUserId, RoomListEvent.Changed(room)))
-        }
+        messageEventFlow.emit(MessageEvent.RoomChangeEvent(RoomListEvent.Changed(room)))
         return true
     }
 
     private suspend fun emitJoinRequestEvent(roomId: Long, event: RoomJoinRequestEvent) {
         val owners = roomMembers.filter { it.key.first == roomId && it.value == RoomRole.Owner }.keys
-        for ((_, userId) in owners) joinRequestFlow.emit(userId to event)
+        for ((_, userId) in owners) messageEventFlow.emit(MessageEvent.RoomJoinRequestMessageEvent(userId, event))
     }
 
     override suspend fun recordMessage(userId: Long, msg: String, roomId: Long) {

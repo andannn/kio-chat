@@ -26,19 +26,18 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlin.time.Duration.Companion.seconds
 
 context(repo: Repository)
-internal suspend fun WebsocketContext.handleObserveUserEvent() = coroutineScope {
+internal suspend fun WebsocketContext.handleObserveUserEvent(): Unit = coroutineScope {
     val myId = requireSession().userId
     val isJson = call.requestParameters["format"] == "json"
     currentLogger().info("[voice] WebSocket connected: user=$myId")
 
-    val currentRoomIds = mutableListOf<Long>()
+    val currentRoomIds = mutableSetOf<Long>()
     val wsSessionId = repo.openWsSession(myId)
 
     listeningRoomList(currentRoomIds, myId)
@@ -60,7 +59,7 @@ internal suspend fun WebsocketContext.handleObserveUserEvent() = coroutineScope 
 
 context(repo: Repository)
 private fun CoroutineScope.forwardVoiceParticipants(
-    roomIds: List<Long>,
+    roomIds: Set<Long>,
     ws: WebsocketContext,
     isJson: Boolean,
 ) = launch(start = CoroutineStart.UNDISPATCHED) {
@@ -84,7 +83,7 @@ private fun CoroutineScope.forwardVoiceParticipants(
 
 context(repo: Repository)
 private fun CoroutineScope.forwardChatEvent(
-    roomIds: List<Long>,
+    roomIds: Set<Long>,
     ws: WebsocketContext,
     myId: Long,
     isJson: Boolean,
@@ -103,7 +102,7 @@ private fun CoroutineScope.forwardChatEvent(
 
 context(repo: Repository)
 private fun CoroutineScope.listeningRoomList(
-    roomIds: MutableList<Long>,
+    roomIds: MutableSet<Long>,
     myId: Long,
 ) = launch {
     repo.getMessageEventSharedFlow()
@@ -122,7 +121,7 @@ private fun CoroutineScope.listeningRoomList(
 }
 
 context(repo: Repository)
-private fun CoroutineScope.forwardRoomListEvent(roomIds: List<Long>, ws: WebsocketContext, myId: Long, isJson: Boolean) = launch {
+private fun CoroutineScope.forwardRoomListEvent(roomIds: Set<Long>, ws: WebsocketContext, myId: Long, isJson: Boolean) = launch {
     repo.getMessageEventSharedFlow()
         .collect { message ->
             val userEvent = when (message) {
@@ -153,36 +152,21 @@ private fun CoroutineScope.forwardRoomListEvent(roomIds: List<Long>, ws: Websock
 
 context(repo: Repository)
 private fun CoroutineScope.forwardRoomJoinRequest(ws: WebsocketContext, myId: Long, isJson: Boolean) = launch {
-    val ids = mutableSetOf<Long>()
-    flow {
-        repo.getMessageEventSharedFlow()
-            .onSubscription {
-                val requests = repo.getRoomJoinRequests(myId)
-                ids.addAll(requests.map { it.id })
-                this@flow.emit(RoomJoinRequestEvent.Initial(requests))
+    repo.getMessageEventSharedFlow()
+        .filterIsInstance<MessageEvent.RoomJoinRequestMessageEvent>()
+        .filter { it.userId == myId }
+        .collect { (_, event) ->
+            if (isJson) {
+                ws.sendText(json<UserEvent>(event))
+            } else {
+                ws.sendText(html {
+                    when (event) {
+                        is RoomJoinRequestEvent.Added -> roomJoinRequestAdded(event.request)
+                        is RoomJoinRequestEvent.Removed -> roomJoinRequestRemoved(event.requestId)
+                    }
+                })
             }
-            .filterIsInstance<MessageEvent.RoomJoinRequestMessageEvent>()
-            .collect { (eventUserId, event) ->
-                if (eventUserId != myId) return@collect
-                when (event) {
-                    is RoomJoinRequestEvent.Added -> if (ids.add(event.request.id)) emit(event)
-                    is RoomJoinRequestEvent.Removed -> if (ids.remove(event.requestId)) emit(event)
-                    is RoomJoinRequestEvent.Initial -> Unit
-                }
-            }
-    }.collect { event ->
-        if (isJson) {
-            ws.sendText(json<UserEvent>(event))
-        } else {
-            ws.sendText(html {
-                when (event) {
-                    is RoomJoinRequestEvent.Initial -> roomJoinRequestInitial(event.requests)
-                    is RoomJoinRequestEvent.Added -> roomJoinRequestAdded(event.request)
-                    is RoomJoinRequestEvent.Removed -> roomJoinRequestRemoved(event.requestId)
-                }
-            })
         }
-    }
 }
 
 context(repo: Repository)
