@@ -105,6 +105,9 @@ class MockRepositoryImpl : Repository, WsSessionRepository by InMemoryWsSessionR
         return true
     }
 
+    override suspend fun getOwnedRoomIds(userId: Long): List<Long> =
+        roomMembers.filter { it.key.second == userId && it.value == RoomRole.Owner }.map { it.key.first }
+
     override suspend fun isRoomOwner(roomId: Long, userId: Long): Boolean =
         roomMembers[roomId to userId] == RoomRole.Owner
 
@@ -155,8 +158,7 @@ class MockRepositoryImpl : Repository, WsSessionRepository by InMemoryWsSessionR
     }
 
     private suspend fun emitJoinRequestEvent(roomId: Long, event: RoomJoinRequestEvent) {
-        val owners = roomMembers.filter { it.key.first == roomId && it.value == RoomRole.Owner }.keys
-        for ((_, userId) in owners) messageEventFlow.emit(MessageEvent.RoomJoinRequestMessageEvent(userId, event))
+        messageEventFlow.emit(MessageEvent.RoomJoinRequestMessageEvent(roomId, event))
     }
 
     override suspend fun recordMessage(userId: Long, msg: String, roomId: Long) {

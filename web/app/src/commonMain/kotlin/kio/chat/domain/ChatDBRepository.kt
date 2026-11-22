@@ -24,6 +24,7 @@ interface ChatDBRepository {
     suspend fun rejectRoomJoinRequest(requestId: Long, ownerId: Long): Boolean
     suspend fun isRoomOwner(roomId: Long, userId: Long): Boolean
     suspend fun createRoom(userId: Long, name: String): Room
+    suspend fun getOwnedRoomIds(userId: Long): List<Long>
     suspend fun getRoomList(userId: Long): List<Room>
     suspend fun getRoomMembers(roomId: Long): List<RoomMember>
     suspend fun getRoomMemberById(roomId: Long, userId: Long): RoomMember?
@@ -118,10 +119,7 @@ class ChatDBRepositoryImpl(
                             else -> continue
                         }
 
-                        val owners = pgPool.useConnection { it.getRoomOwners(event.requestRoomId) }
-                        for ((userId) in owners) {
-                            dbMessageEventFlow.emit(MessageEvent.RoomJoinRequestMessageEvent(userId, joinReqEvent))
-                        }
+                        dbMessageEventFlow.emit(MessageEvent.RoomJoinRequestMessageEvent(event.requestRoomId, joinReqEvent))
                     }
                 }
             }
@@ -166,6 +164,9 @@ class ChatDBRepositoryImpl(
 
     override suspend fun isRoomOwner(roomId: Long, userId: Long): Boolean =
         getRoomMemberById(roomId, userId)?.role == RoomRole.Owner
+
+    override suspend fun getOwnedRoomIds(userId: Long): List<Long> =
+        pgPool.useConnection { it.getOwnedRoomIds(userId) }
 
     override suspend fun createRoom(userId: Long, name: String): Room =
         pgPool.useConnection { it.createRoomForUser(userId, name) }.toRoom()
@@ -243,14 +244,27 @@ sealed interface MessageEvent {
     ) : MessageEvent
 
     data class RoomJoinRequestMessageEvent(
-        val userId: Long,
+        val roomId: Long,
         val event: RoomJoinRequestEvent
     ) : MessageEvent
 }
 
 private fun ChatUserEntity.toUser() = User(id, username, passwordHash, nickname)
-// TODO: query Role.
-private fun ChatMessageWithUserEntity.toMessage() = Message(id, RoomMember(userId, nickname), text, nickname)
+private fun ChatMessageWithUserEntity.toMessage() = Message(
+    id = id,
+    member = RoomMember(
+        userId = userId,
+        nickname = nickname,
+        role = when (role) {
+            "owner" -> RoomRole.Owner
+            "member" -> RoomRole.Member
+            null -> RoomRole.Member
+            else -> error("Unknown room role: $role")
+        },
+    ),
+    text = text,
+    nickname = nickname,
+)
 
 private fun ChatRoomEntity.toRoom() = Room(id, name)
 

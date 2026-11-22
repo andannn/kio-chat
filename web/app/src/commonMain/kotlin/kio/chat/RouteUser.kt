@@ -38,9 +38,10 @@ internal suspend fun WebsocketContext.handleObserveUserEvent(): Unit = coroutine
     currentLogger().info("[voice] WebSocket connected: user=$myId")
 
     val currentRoomIds = mutableSetOf<Long>()
+    val ownedRoomIds = mutableSetOf<Long>()
     val wsSessionId = repo.openWsSession(myId)
 
-    listeningRoomList(currentRoomIds, myId)
+    listeningRoomList(currentRoomIds, ownedRoomIds, myId)
     launch {
         try {
             sendText(json<UserEvent>(WebSocketSessionReady(wsSessionId)))
@@ -50,7 +51,7 @@ internal suspend fun WebsocketContext.handleObserveUserEvent(): Unit = coroutine
         }
     }
 
-    forwardRoomJoinRequest(this@handleObserveUserEvent, myId, isJson)
+    forwardRoomJoinRequest(ownedRoomIds, this@handleObserveUserEvent, isJson)
     forwardRoomListEvent(currentRoomIds, this@handleObserveUserEvent, myId, isJson)
     forwardChatEvent(currentRoomIds, this@handleObserveUserEvent, myId, isJson)
     forwardVoiceParticipants(currentRoomIds, this@handleObserveUserEvent, isJson)
@@ -103,19 +104,30 @@ private fun CoroutineScope.forwardChatEvent(
 context(repo: Repository)
 private fun CoroutineScope.listeningRoomList(
     roomIds: MutableSet<Long>,
+    ownedRoomIds: MutableSet<Long>,
     myId: Long,
 ) = launch {
     repo.getMessageEventSharedFlow()
         .onSubscription {
             val rooms = repo.getRoomList(myId)
             roomIds.addAll(rooms.map { it.id })
+            val owned = repo.getOwnedRoomIds(myId)
+            ownedRoomIds.addAll(owned)
         }
         .filterIsInstance<MessageEvent.UserRoomEvent>()
         .filter { it.userId == myId }
         .collect { message ->
             when (message) {
-                is MessageEvent.UserRoomAddEvent -> roomIds.add(message.event.room.id)
-                is MessageEvent.UserRoomDeleteEvent -> roomIds.remove(message.event.roomId)
+                is MessageEvent.UserRoomAddEvent -> {
+                    roomIds.add(message.event.room.id)
+                    if (repo.isRoomOwner(message.event.room.id, myId)) {
+                        ownedRoomIds.add(message.event.room.id)
+                    }
+                }
+                is MessageEvent.UserRoomDeleteEvent -> {
+                    roomIds.remove(message.event.roomId)
+                    ownedRoomIds.remove(message.event.roomId)
+                }
             }
         }
 }
@@ -151,10 +163,14 @@ private fun CoroutineScope.forwardRoomListEvent(roomIds: Set<Long>, ws: Websocke
 }
 
 context(repo: Repository)
-private fun CoroutineScope.forwardRoomJoinRequest(ws: WebsocketContext, myId: Long, isJson: Boolean) = launch {
+private fun CoroutineScope.forwardRoomJoinRequest(
+    ownedRoomIds: Set<Long>,
+    ws: WebsocketContext,
+    isJson: Boolean,
+) = launch {
     repo.getMessageEventSharedFlow()
         .filterIsInstance<MessageEvent.RoomJoinRequestMessageEvent>()
-        .filter { it.userId == myId }
+        .filter { it.roomId in ownedRoomIds }
         .collect { (_, event) ->
             if (isJson) {
                 ws.sendText(json<UserEvent>(event))

@@ -10,35 +10,33 @@ import kotlinx.html.*
 
 fun TagConsumer<*>.roomAsideMenu(selectedRoomId: Long? = null) {
     header(classes = "sidebar-header") {
-        h1(classes = "sidebar-title") { +"Kio Chat" }
-        p(classes = "section-title") { +"聊天室" }
-        roomCreateForm()
-        details(classes = "join-room") {
-            summary { +"加入聊天室" }
-            form {
-                hxPost = "/rooms/join-requests"
-                hxTarget = "#join-room-result"
-                hxSwap = "innerHTML"
-                attributes["hx-disabled-elt"] = "find button"
-                label {
-                    +"房间 ID"
-                    numberInput {
-                        name = "roomId"
-                        required = true
-                        min = "1"
-                    }
+        div(classes = "sidebar-header-top") {
+            h1(classes = "sidebar-title") { +"Kio Chat" }
+            div(classes = "sidebar-actions") {
+                button(type = ButtonType.button, classes = "icon-action-btn") {
+                    attributes["aria-label"] = "加入聊天室"
+                    attributes["title"] = "加入聊天室"
+                    attributes["onclick"] = "document.getElementById('join-room-dialog')?.showModal()"
+                    +"+"
                 }
-                button(type = ButtonType.submit) { +"发送申请" }
-                div { id = "join-room-result" }
+                button(type = ButtonType.button, classes = "icon-action-btn") {
+                    attributes["aria-label"] = "新建聊天室"
+                    attributes["title"] = "新建聊天室"
+                    attributes["onclick"] = "document.getElementById('create-room-dialog')?.showModal()"
+                    +"✎"
+                }
             }
         }
+        createRoomModal()
+        joinRoomModal()
+        p(classes = "section-title") { +"聊天室" }
     }
     nav(classes = "sidebar-content") {
         attributes["aria-label"] = "聊天室"
         div {
             id = "room-list-items"
             hxGet = "/rooms?selectedRoomId=${selectedRoomId?.toString().orEmpty()}"
-            hxTrigger = "refresh"
+            hxTrigger = "load"
             hxSwap = "innerHTML"
             attributes["hx-headers"] = """{"Accept":"text/html"}"""
             attributes["hx-sync"] = "this:replace"
@@ -55,26 +53,90 @@ fun TagConsumer<*>.roomAsideMenu(selectedRoomId: Long? = null) {
     }
 }
 
-private fun TagConsumer<*>.roomCreateForm() {
-    details(classes = "join-room") {
-        summary { +"创建聊天室" }
-        form {
-            hxPost = "/rooms"
-            hxTarget = "#create-room-result"
-            hxSwap = "innerHTML"
-            attributes["hx-disabled-elt"] = "find button"
-            label {
-                +"聊天室名称"
-                textInput {
-                    name = "name"
-                    required = true
-                    placeholder = "给聊天室起个名字"
+private fun TagConsumer<*>.createRoomModal() {
+    dialog(classes = "app-dialog") {
+        id = "create-room-dialog"
+        div(classes = "dialog-content") {
+            header(classes = "dialog-header") {
+                h2 { +"创建聊天室" }
+                button(type = ButtonType.button, classes = "members-close") {
+                    attributes["aria-label"] = "关闭"
+                    attributes["onclick"] = "this.closest('dialog').close()"
+                    +"×"
                 }
             }
-            button(type = ButtonType.submit) { +"创建" }
-            div {
-                id = "create-room-result"
-                attributes["role"] = "status"
+            form {
+                hxPost = "/rooms"
+                hxTarget = "#create-room-result"
+                hxSwap = "innerHTML"
+                attributes["hx-disabled-elt"] = "find button"
+                hxOnAfterRequest = "if (event.detail.successful) { this.reset(); document.getElementById('create-room-dialog')?.close(); }"
+                div(classes = "dialog-form-field") {
+                    label {
+                        +"聊天室名称"
+                        textInput(classes = "dialog-input") {
+                            name = "name"
+                            required = true
+                            placeholder = "给聊天室起个名字"
+                        }
+                    }
+                }
+                div(classes = "dialog-actions") {
+                    button(type = ButtonType.button, classes = "btn-secondary") {
+                        attributes["onclick"] = "this.closest('dialog').close()"
+                        +"取消"
+                    }
+                    button(type = ButtonType.submit, classes = "btn-primary") { +"创建" }
+                }
+                div {
+                    id = "create-room-result"
+                    attributes["role"] = "status"
+                }
+            }
+        }
+    }
+}
+
+private fun TagConsumer<*>.joinRoomModal() {
+    dialog(classes = "app-dialog") {
+        id = "join-room-dialog"
+        div(classes = "dialog-content") {
+            header(classes = "dialog-header") {
+                h2 { +"加入聊天室" }
+                button(type = ButtonType.button, classes = "members-close") {
+                    attributes["aria-label"] = "关闭"
+                    attributes["onclick"] = "this.closest('dialog').close()"
+                    +"×"
+                }
+            }
+            form {
+                hxPost = "/rooms/join-requests"
+                hxTarget = "#join-room-result"
+                hxSwap = "innerHTML"
+                attributes["hx-disabled-elt"] = "find button"
+                hxOnAfterRequest = "if (event.detail.successful) { this.reset(); }"
+                div(classes = "dialog-form-field") {
+                    label {
+                        +"房间 ID"
+                        numberInput(classes = "dialog-input") {
+                            name = "roomId"
+                            required = true
+                            min = "1"
+                            placeholder = "输入房间 ID"
+                        }
+                    }
+                }
+                div(classes = "dialog-actions") {
+                    button(type = ButtonType.button, classes = "btn-secondary") {
+                        attributes["onclick"] = "this.closest('dialog').close()"
+                        +"取消"
+                    }
+                    button(type = ButtonType.submit, classes = "btn-primary") { +"发送申请" }
+                }
+                div {
+                    id = "join-room-result"
+                    attributes["role"] = "status"
+                }
             }
         }
     }
@@ -95,8 +157,7 @@ fun TagConsumer<*>.roomItem(room: Room, selected: Boolean = false, outOfBand: Bo
             hxPushUrl = "/rooms/${room.id}"
             if (selected) attributes["aria-current"] = "page"
             attributes["hx-on:click"] = """
-                document.querySelectorAll('.room-link[aria-current="page"]')
-                    .forEach(it => it.removeAttribute('aria-current'));
+                document.querySelectorAll('.room-link[aria-current="page"]').forEach(el => el.removeAttribute('aria-current'));
                 this.setAttribute('aria-current', 'page');
             """.trimIndent()
             span(classes = "room-name") { +room.name }
@@ -144,73 +205,70 @@ fun TagConsumer<*>.chatRoomContent(room: Room, isOwner: Boolean = false) {
     val messagePath = "/rooms/${room.id}/messages"
     div(classes = "chat-room") {
         attributes["data-room-id"] = room.id.toString()
-        attributes["hx-on:htmx:oob-after-swap"] =
-            "if (event.detail.shouldSwap && event.detail.target.id === 'messages') scrollMessageList(this)"
         div(classes = "chat-conversation") {
             header(classes = "chat-header") {
-                div {
+                div(classes = "room-title-area") {
                     h2 {
                         id = "room-title-${room.id}"
                         attributes["data-room-id"] = room.id.toString()
                         +room.name
                     }
-                    small { +"房间 ID：${room.id}" }
+                    span(classes = "room-id-badge") { +"ID: ${room.id}" }
                 }
 
-                button(type = ButtonType.button, classes = "members-toggle") {
-                    id = "voice-join"
-                    attributes["onclick"] = "joinVoice('${room.id}')"
-                    +"加入语音"
-                }
+                div(classes = "room-header-actions") {
+                    button(type = ButtonType.button, classes = "btn-voice") {
+                        id = "voice-toggle"
+                        attributes["data-room-id"] = room.id.toString()
+                        attributes["onclick"] = "toggleVoice('${room.id}')"
+                        attributes["aria-pressed"] = "false"
+                        +"加入语音"
+                    }
 
-                button(type = ButtonType.button, classes = "members-toggle") {
-                    id = "voice-exit"
-                    attributes["onclick"] = "exitVoice('${room.id}')"
-                    +"退出语音"
-                }
-
-                button(type = ButtonType.button, classes = "members-toggle") {
-                    attributes["aria-controls"] = "room-members-panel"
-                    attributes["aria-expanded"] = "false"
-                    attributes["hx-on:click"] = "toggleRoomMembers(this)"
-                    +"成员"
+                    button(type = ButtonType.button, classes = "members-toggle") {
+                        attributes["aria-controls"] = "room-members-panel"
+                        attributes["onclick"] = "const p = document.getElementById('room-members-panel'); if (p) { p.hidden = !p.hidden; this.classList.toggle('active', !p.hidden); }"
+                        +"成员"
+                    }
                 }
             }
             section(classes = "voice-participants") {
                 attributes["data-voice-participants"] = ""
                 attributes["aria-label"] = "正在语音通话的成员"
                 hxGet = "/rooms/${room.id}/voice/members"
-                hxTrigger = "load, refresh"
+                hxTrigger = "load"
                 hxSwap = "innerHTML"
                 attributes["hx-headers"] = """{"Accept":"text/html"}"""
                 attributes["hx-sync"] = "this:drop"
                 voiceParticipantList(room.id, emptyList())
             }
             section(classes = "chat-messages") {
-                id = "messages"
+                id = "messages-${room.id}"
                 hxGet = "$messagePath?beforeId=${Long.MAX_VALUE}"
                 hxTrigger = "load"
-                hxSwap = "innerHTML"
-                attributes["hx-on:htmx:after-swap"] =
-                    "if (event.detail.target === this) scrollMessageList(this.closest('.chat-room'))"
+                hxSwap = "innerHTML scroll:bottom"
             }
             form(classes = "chat-composer") {
                 id = "message-form"
                 hxPost = messagePath
                 hxSwap = "none"
-                hxOnAfterRequest = "if (event.detail.successful) this.reset()"
-                textArea {
-                    id = "content"
-                    name = "content"
-                    required = true
-                    rows = "3"
-                    placeholder = "输入消息…"
-                    attributes["aria-label"] = "消息"
-                    attributes["hx-on:keydown"] = "handleMessageKeydown(event, this)"
-                }
-                button(type = ButtonType.submit) {
-                    id = "send-button"
-                    +"发送"
+                hxOnAfterRequest = "if (event.detail.successful) { this.reset(); const t = this.querySelector('textarea'); if (t) { t.style.height = 'auto'; } }"
+                div(classes = "composer-input-wrapper") {
+                    textArea {
+                        id = "content"
+                        name = "content"
+                        required = true
+                        rows = "1"
+                        placeholder = "输入消息…（Enter 发送，Shift+Enter 换行）"
+                        attributes["aria-label"] = "消息"
+                        attributes["hx-on:keydown"] = "if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!event.repeat && this.value.trim().length > 0) this.form?.requestSubmit(); }"
+                        attributes["oninput"] = "this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 180) + 'px';"
+                    }
+                    button(type = ButtonType.submit, classes = "composer-send-button") {
+                        id = "send-button"
+                        attributes["aria-label"] = "发送消息"
+                        +"发送"
+                    }
                 }
             }
         }
@@ -224,11 +282,6 @@ fun TagConsumer<*>.chatRoomContent(room: Room, isOwner: Boolean = false) {
             hxSwap = "innerHTML"
             header(classes = "members-header") {
                 h2 { +"房间成员" }
-                button(type = ButtonType.button, classes = "members-close") {
-                    attributes["aria-label"] = "关闭成员列表"
-                    attributes["hx-on:click"] = "toggleRoomMembers(this)"
-                    +"×"
-                }
             }
             div(classes = "members-content") {
                 id = "room-members-list"
@@ -263,7 +316,7 @@ fun TagConsumer<*>.voiceParticipantList(roomId: Long, members: List<RoomMember>)
         hidden = true
     }
     ul(classes = "voice-participants-list") {
-        id = "voice-participants-list"
+        id = "voice-participants-list-$roomId"
         members.forEach { member ->
             li { voiceParticipantItem(roomId, member) }
         }
@@ -272,7 +325,6 @@ fun TagConsumer<*>.voiceParticipantList(roomId: Long, members: List<RoomMember>)
 
 private fun LI.voiceParticipantItem(roomId: Long, member: RoomMember) {
     id = "voice-participant-$roomId-${member.userId}"
-    attributes["data-voice-room-id"] = roomId.toString()
     +member.nickname
     if (member.role == RoomRole.Owner) {
         span(classes = "member-role") { +"群主" }
@@ -282,7 +334,7 @@ private fun LI.voiceParticipantItem(roomId: Long, member: RoomMember) {
 fun TagConsumer<*>.voiceParticipantEvent(event: VoiceParticipantsEvent) {
     when (event) {
         is VoiceParticipantsEvent.Added -> ul {
-            id = "voice-participants-list"
+            id = "voice-participants-list-${event.roomId}"
             hxSwapOob = "beforeend"
             li { voiceParticipantItem(event.roomId, event.member) }
         }
@@ -311,36 +363,36 @@ fun TagConsumer<*>.roomMemberList(members: List<RoomMember>) {
 
 private fun TagConsumer<*>.roomJoinRequestsButton() {
     button(type = ButtonType.button, classes = "logout-button") {
-        attributes["commandfor"] = "join-requests-dialog"
-        attributes["command"] = "show-modal"
+        attributes["onclick"] = "document.getElementById('join-requests-dialog')?.showModal()"
         +"入群申请"
     }
 }
 
 private fun TagConsumer<*>.roomJoinRequestsDialog() {
-    dialog(classes = "join-requests-dialog") {
+    dialog(classes = "app-dialog join-requests-dialog") {
         id = "join-requests-dialog"
         attributes["aria-labelledby"] = "join-requests-title"
-        header(classes = "members-header") {
-            h2 { id = "join-requests-title"; +"入群申请" }
-            button(type = ButtonType.button, classes = "members-close") {
-                attributes["commandfor"] = "join-requests-dialog"
-                attributes["command"] = "close"
-                attributes["aria-label"] = "关闭申请列表"
-                +"×"
+        div(classes = "dialog-content") {
+            header(classes = "dialog-header") {
+                h2 { id = "join-requests-title"; +"入群申请" }
+                button(type = ButtonType.button, classes = "members-close") {
+                    attributes["aria-label"] = "关闭申请列表"
+                    attributes["onclick"] = "this.closest('dialog')?.close()"
+                    +"×"
+                }
             }
-        }
-        div {
-            id = "join-request-result"
-            attributes["aria-live"] = "polite"
-        }
-        div {
-            id = "room-join-requests"
-            hxGet = "/rooms/join-requests"
-            hxTrigger = "refresh"
-            hxSwap = "innerHTML"
-            attributes["hx-headers"] = """{"Accept":"text/html"}"""
-            attributes["hx-sync"] = "this:replace"
+            div {
+                id = "join-request-result"
+                attributes["aria-live"] = "polite"
+            }
+            div {
+                id = "room-join-requests"
+                hxGet = "/rooms/join-requests"
+                hxTrigger = "load"
+                hxSwap = "innerHTML"
+                attributes["hx-headers"] = """{"Accept":"text/html"}"""
+                attributes["hx-sync"] = "this:replace"
+            }
         }
     }
 }
@@ -400,6 +452,11 @@ fun TagConsumer<*>.roomListDeleted(roomId: Long) {
     div {
         id = "room-link-$roomId"
         hxSwapOob = "delete"
+    }
+    div {
+        id = "room-content"
+        attributes["hx-swap-oob"] = "innerHTML:[data-room-id='$roomId']"
+        div(classes = "chat-empty") { +"聊天室已被解散或退出" }
     }
 }
 

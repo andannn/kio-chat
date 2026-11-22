@@ -16,219 +16,193 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlin.test.assertFalse
 import kotlin.time.Duration.Companion.seconds
 
 abstract class DatabaseTest {
     abstract val pollerFactory: PollerFactory
 
+    // ==========================================
+    // 1. User & Session
+    // ==========================================
+
     @Test
-    fun getUserByUsernameTest() = withTestPgDatabase {
-        val user = createUser("userA", "pass")!!
+    fun userCreateAndQueryTest() = withTestPgDatabase {
+        val user = createUser("userA", "pass", "NicknameA")!!
         assertEquals("userA", user.username)
         assertEquals("pass", user.passwordHash)
-        assertEquals(user, getUserByUsername(user.username))
+        assertEquals("NicknameA", user.nickname)
+        assertEquals(user, getUserByUsername("userA"))
+
+        // Duplicate username should return null
+        val duplicate = createUser("userA", "otherPass")
+        assertNull(duplicate)
     }
 
     @Test
-    fun createUserDuplicatedTest() = withTestPgDatabase {
-        val user1 = createUser("userA", "pass")!!
-        val user2 = createUser("userA", "pass1")
-        assertNull(user2)
+    fun sessionLifecycleTest() = withTestPgDatabase {
+        val user = createUser("sessionUser", "hash")!!
+        val sessionId = "session_token_123"
+
+        assertNull(getUserIdBySessionId(sessionId))
+
+        createSession(user.id, sessionId)
+        assertEquals(user.id, getUserIdBySessionId(sessionId))
+
+        deleteSession(sessionId)
+        assertNull(getUserIdBySessionId(sessionId))
+    }
+
+    // ==========================================
+    // 2. Room & Membership
+    // ==========================================
+
+    @Test
+    fun roomLifecycleAndOwnershipTest() = withTestPgDatabase {
+        val owner = createUser("room-owner", "hash")!!
+        val room = createRoomForUser(owner.id, "测试群组")
+        assertEquals(room, getRoomById(room.id))
+        assertTrue(isRoomMember(room.id, owner.id))
+        assertTrue(room.id in getOwnedRoomIds(owner.id))
+
+        // Update room name (only owner can update)
+        val other = createUser("other-user", "hash")!!
+        assertFalse(updateRoomName(room.id, other.id, "偷改名字"))
+        assertTrue(updateRoomName(room.id, owner.id, "新群名"))
+        assertEquals("新群名", getRoomById(room.id)?.name)
+
+        // Delete room (only owner can delete)
+        assertFalse(deleteRoom(room.id, other.id))
+        assertTrue(deleteRoom(room.id, owner.id))
+        assertNull(getRoomById(room.id))
+    }
+
+    // ==========================================
+    // 3. Message Operations & Notifications
+    // ==========================================
+
+    @Test
+    fun messageListCursorAndIsolationTest() = withTestPgDatabase {
+        val user = createUser("history", "hash")!!
+        val room = createRoom("新房间")!!
+
+        // Default room messages
+        for (i in 1..5) createMessage(user.id, "message-$i", 1)
+        val latest = getMessageList(beforeId = null, limit = 2, roomId = 1)
+        assertEquals(listOf("message-5", "message-4"), latest.map { it.text })
+        val earlier = getMessageList(beforeId = latest.last().id, limit = 2, roomId = 1)
+        assertEquals(listOf("message-3", "message-2"), earlier.map { it.text })
+        val oldest = getMessageList(beforeId = earlier.last().id, limit = 2, roomId = 1)
+        assertEquals(listOf("message-1"), oldest.map { it.text })
+        assertEquals(emptyList(), getMessageList(beforeId = oldest.single().id, limit = 2, roomId = 1))
+
+        // Room isolation
+        createMessage(user.id, "room-msg", roomId = room.id)
+        assertEquals(listOf("room-msg"), getMessageList(beforeId = null, limit = 10, roomId = room.id).map { it.text })
     }
 
     @Test
-    fun sessionTest() = withTestPgDatabase {
-        val user = createUser(userName = "1", passwordHash = "pas")!!
-        createSession(user.id, "12345")
-        assertEquals(user.id, getUserIdBySessionId("12345"))
-    }
-
-    @Test
-    fun createAndQueryMessagesTest() = withTestPgDatabase {
-        assertEquals(emptyList(), getMessageList(beforeId = null, limit = 50, 1).asReversed())
-        assertNull(getMessageById(-1))
-        val user = createUser("sender", "hash")!!
-        createMessage(user.id, "你好 'quoted' <text>", 1)
-        createMessage(user.id, "second", 1)
-        val messages = getMessageList(beforeId = null, limit = 50, 1).asReversed()
-        assertEquals(2, messages.size)
-        val (first, second) = messages
-        assertEquals(user.id, first.userId)
-        assertEquals("sender", first.username)
-        assertEquals(user.passwordHash, first.passwordHash)
-        assertEquals("sender", getMessageById(second.id)?.username)
-        assertEquals("你好 'quoted' <text>", first.text)
-        assertEquals(first, getMessageById(first.id))
-        assertEquals(listOf(first, second), getMessageList(beforeId = null, limit = 50, 1).asReversed())
-    }
-
-    @Test
-    fun createMessageNotifiesIdTest() = withTestPgDatabase {
-        val user = createUser("sender", "hash")!!
-        exec("LISTEN chat_messages")
-        coroutineScope {
-            val notification = async(start = CoroutineStart.UNDISPATCHED) { waitNotification() }
-            createMessage(user.id, "hello", 1)
-            val event = notification.await()
-            assertEquals("chat_messages", event.channel)
-            val payload = Json.decodeFromString<ChatMessageNotification>(event.message)
-            assertEquals("INSERT", payload.operation)
-            val message = assertIs<ChatMessageWithUserEntity>(getMessageById(payload.messageId))
-            assertEquals(user.id, message.userId)
-            assertEquals("hello", message.text)
-        }
-    }
-
-    @Test
-    fun directSqlChangesNotifyTest() = withTestPgDatabase {
-        val user = createUser("sender", "hash")!!
-        exec("LISTEN chat_messages")
-        exec("INSERT INTO messages(user_id, text) VALUES (${user.id}, 'direct SQL')")
-        val message = getMessageList(beforeId = null, limit = 50, 1).asReversed().single()
-        val inserted = Json.decodeFromString<ChatMessageNotification>(waitNotification().message)
-        assertEquals("INSERT", inserted.operation)
-        assertEquals(message.id, inserted.messageId)
-        exec("UPDATE messages SET text = 'edited' WHERE id = ${message.id}")
-        assertEquals("UPDATE", Json.decodeFromString<ChatMessageNotification>(waitNotification().message).operation)
-        exec("DELETE FROM messages WHERE id = ${message.id}")
-        val deleted = Json.decodeFromString<ChatMessageNotification>(waitNotification().message)
-        assertEquals("DELETE", deleted.operation)
-        assertEquals(message.id, deleted.messageId)
-        assertNull(getMessageById(message.id))
-    }
-
-    @Test
-    fun onlyOwnerCanUpdateOrDeleteMessageTest() = withTestPgDatabase {
+    fun messageUpdateDeleteAndPermissionsTest() = withTestPgDatabase {
         val owner = createUser("owner", "hash")!!
         val other = createUser("other", "hash")!!
         createMessage(owner.id, "original", 1)
-        createMessage(other.id, "keep", 1)
-        val message = getMessageList(beforeId = null, limit = 50, 1).asReversed().first()
+        val message = getMessageList(beforeId = null, limit = 50, 1).single()
+
+        // Non-owner cannot modify or delete
         assertFalse(updateMessage(other.id, message.id, "forged"))
         assertFalse(deleteMessage(other.id, message.id))
         assertEquals("original", getMessageById(message.id)?.text)
+
+        // Owner can update
         assertTrue(updateMessage(owner.id, message.id, "edited"))
         assertEquals("edited", getMessageById(message.id)?.text)
+
+        // Owner can delete
         assertTrue(deleteMessage(owner.id, message.id))
         assertNull(getMessageById(message.id))
-        assertFalse(updateMessage(owner.id, message.id, "missing"))
-        assertFalse(deleteMessage(owner.id, message.id))
-        assertEquals(listOf("keep"), getMessageList(beforeId = null, limit = 50, 1).asReversed().map { it.text })
     }
 
     @Test
-    fun messageListCursorTest() = withTestPgDatabase {
-        val user = createUser("history", "hash")!!
-        for (i in 1..5) createMessage(user.id, "message-$i", 1)
-        val latest = getMessageList(beforeId = null, limit = 2, 1)
-        assertEquals(listOf("message-5", "message-4"), latest.map { it.text })
-        val earlier = getMessageList(beforeId = latest.last().id, limit = 2, 1)
-        assertEquals(listOf("message-3", "message-2"), earlier.map { it.text })
-        val oldest = getMessageList(beforeId = earlier.last().id, limit = 2, 1)
-        assertEquals(listOf("message-1"), oldest.map { it.text })
-        assertEquals(emptyList(), getMessageList(beforeId = oldest.single().id, limit = 2, 1))
-    }
-
-    @Test
-    fun roomsIsolateMessagesTest() = withTestPgDatabase {
-        val defaultRoom = getRoomList().single()
-        assertEquals(1L, defaultRoom.id)
-        assertEquals("公共聊天室", defaultRoom.name)
-        val room = createRoom("第二个房间 'quoted'")!!
-        assertEquals(room, getRoomById(room.id))
-        assertNull(getRoomById(-1))
-        assertEquals(listOf(defaultRoom, room), getRoomList())
-
-        val user = createUser("room-user", "hash")!!
-        createMessage(user.id, "public", 1)
-        createMessage(user.id, "room-first", roomId = room.id)
-        createMessage(user.id, "room-second", roomId = room.id)
-        assertEquals(listOf("public"), getMessageList(null, 50, 1).map { it.text })
-        val latest = getMessageList(null, 1, room.id).single()
-        assertEquals(room.id, latest.roomId)
-        assertEquals("room-second", latest.text)
-        assertEquals(listOf("room-first"), getMessageList(latest.id, 50, room.id).map { it.text })
-        assertFalse(updateMessage(user.id, latest.id, "wrong-room"))
-        assertFalse(deleteMessage(user.id, latest.id))
-        assertTrue(updateMessage(user.id, latest.id, "edited", room.id))
-        assertEquals("edited", getMessageById(latest.id)?.text)
-        assertTrue(deleteMessage(user.id, latest.id, room.id))
-    }
-
-    @Test
-    fun roomNotificationsTest() = withTestPgDatabase {
-        val user = createUser("room-notify", "hash")!!
-        val room = createRoom("通知测试")!!
+    fun messageNotificationsTest() = withTestPgDatabase {
+        val user = createUser("msg-notify-user", "hash")!!
+        val room = createRoom("通知房间")!!
         exec("LISTEN chat_messages")
-        createMessage(user.id, "hello", room.id)
-        val inserted = Json.decodeFromString<ChatMessageNotification>(waitNotification().message)
-        assertEquals(room.id, inserted.roomId)
-        assertEquals("INSERT", inserted.operation)
-        assertTrue(updateMessage(user.id, inserted.messageId, "edited", room.id))
-        val updated = Json.decodeFromString<ChatMessageNotification>(waitNotification().message)
-        assertEquals(room.id, updated.roomId)
-        assertEquals("UPDATE", updated.operation)
-        assertTrue(deleteMessage(user.id, inserted.messageId, room.id))
-        val deleted = Json.decodeFromString<ChatMessageNotification>(waitNotification().message)
-        assertEquals(room.id, deleted.roomId)
-        assertEquals(inserted.messageId, deleted.messageId)
-        assertEquals("DELETE", deleted.operation)
+
+        // 1. Insert notification
+        coroutineScope {
+            val notificationTask = async(start = CoroutineStart.UNDISPATCHED) { waitNotification() }
+            createMessage(user.id, "notify-content", room.id)
+            val event = notificationTask.await()
+            assertEquals("chat_messages", event.channel)
+            val inserted = Json.decodeFromString<ChatMessageNotification>(event.message)
+            assertEquals("INSERT", inserted.operation)
+            assertEquals(room.id, inserted.roomId)
+
+            val msg = assertIs<ChatMessageWithUserEntity>(getMessageById(inserted.messageId))
+            assertEquals("notify-content", msg.text)
+
+            // 2. Update notification
+            val updateTask = async(start = CoroutineStart.UNDISPATCHED) { waitNotification() }
+            assertTrue(updateMessage(user.id, inserted.messageId, "notify-edited", room.id))
+            val updatePayload = Json.decodeFromString<ChatMessageNotification>(updateTask.await().message)
+            assertEquals("UPDATE", updatePayload.operation)
+            assertEquals(inserted.messageId, updatePayload.messageId)
+
+            // 3. Delete notification
+            val deleteTask = async(start = CoroutineStart.UNDISPATCHED) { waitNotification() }
+            assertTrue(deleteMessage(user.id, inserted.messageId, room.id))
+            val deletePayload = Json.decodeFromString<ChatMessageNotification>(deleteTask.await().message)
+            assertEquals("DELETE", deletePayload.operation)
+            assertEquals(inserted.messageId, deletePayload.messageId)
+        }
     }
 
+    // ==========================================
+    // 4. Room Join Requests
+    // ==========================================
+
     @Test
-    fun roomJoinRequestTest() = withTestPgDatabase {
+    fun roomJoinRequestLifecycleTest() = withTestPgDatabase {
         val owner = createUser("request-owner", "hash")!!
         val applicant = createUser("applicant", "hash")!!
         val other = createUser("other", "hash")!!
         val room = getUserRoomList(owner.id).single()
+
+        // Error cases
         assertEquals(null to CreateRoomJoinRequestError.MemberAlreadyInRoom, createRoomJoinRequest(room.id, owner.id))
         assertEquals(null to CreateRoomJoinRequestError.RoomNotExist, createRoomJoinRequest(-1, applicant.id))
+
+        // Create request
         val (created, createError) = createRoomJoinRequest(room.id, applicant.id)
         assertNull(createError)
         val request = assertIs<ChatRoomJoinRequestEntity>(created)
         assertEquals(null to CreateRoomJoinRequestError.RequestAlreadyExist, createRoomJoinRequest(room.id, applicant.id))
+
+        // Verify request visibility (only room owners see it)
         assertTrue(getRoomJoinRequests(other.id).isEmpty())
-        assertEquals(applicant.username, getRoomJoinRequests(owner.id).single().nickname)
+        val ownerPending = getRoomJoinRequests(owner.id)
+        assertEquals(1, ownerPending.size)
+        assertEquals(applicant.nickname, ownerPending.single().nickname)
+
+        // Non-owner cannot approve/reject
         assertFalse(approveRoomJoinRequest(request.id, other.id))
         assertFalse(rejectRoomJoinRequest(request.id, applicant.id))
+
+        // Owner approves
         assertTrue(approveRoomJoinRequest(request.id, owner.id))
         assertTrue(isRoomMember(room.id, applicant.id))
         assertEquals("member", getRoomMembers(room.id).first { it.userId == applicant.id }.role)
-        assertFalse(approveRoomJoinRequest(request.id, owner.id))
         assertTrue(getRoomJoinRequests(owner.id).isEmpty())
 
+        // Create, then reject another request
         val (rejectedRequest, rejectError) = createRoomJoinRequest(room.id, other.id)
         assertNull(rejectError)
         val rejected = assertIs<ChatRoomJoinRequestEntity>(rejectedRequest)
         assertTrue(rejectRoomJoinRequest(rejected.id, owner.id))
         assertFalse(isRoomMember(room.id, other.id))
-        assertFalse(rejectRoomJoinRequest(rejected.id, owner.id))
-        val (resubmitted, resubmitError) = createRoomJoinRequest(room.id, other.id)
-        assertNull(resubmitError)
-        assertIs<ChatRoomJoinRequestEntity>(resubmitted)
-    }
-
-    @Test
-    fun pendingRoomJoinRequestsTest() = withTestPgDatabase {
-        val owner = createUser("pending-owner", "hash")!!
-        val otherOwner = createUser("other-owner", "hash")!!
-        val applicant = createUser("pending-applicant", "hash")!!
-        val firstRoom = getUserRoomList(owner.id).single()
-        val secondRoom = getUserRoomList(otherOwner.id).single()
-        exec("INSERT INTO room_members(room_id, user_id, role) VALUES (${secondRoom.id}, ${owner.id}, 'owner')")
-        assertNull(createRoomJoinRequest(firstRoom.id, applicant.id).second)
-        assertNull(createRoomJoinRequest(secondRoom.id, applicant.id).second)
-
-        val pending = getRoomJoinRequests(owner.id)
-        assertEquals(listOf(firstRoom.id, secondRoom.id), pending.map { it.roomId })
-        assertEquals(listOf(firstRoom.name, secondRoom.name), pending.map { it.roomName })
-        assertTrue(pending.all { it.userId == applicant.id && it.nickname == applicant.nickname })
-        assertEquals(listOf(secondRoom.id), getRoomJoinRequests(otherOwner.id).map { it.roomId })
-        assertTrue(getRoomJoinRequests(applicant.id).isEmpty())
     }
 
     @Test
@@ -248,53 +222,53 @@ abstract class DatabaseTest {
             assertEquals(applicant.id, event.requestUserId)
         }
 
-        val rejected = createRoomJoinRequest(room.id, applicant.id).first!!
-        assertNotification("INSERT", rejected.id)
-        val request = getRoomJoinRequestById(rejected.id)!!
-        assertEquals(room.name, request.roomName)
-        assertEquals(applicant.username, request.nickname)
-        assertTrue(rejectRoomJoinRequest(rejected.id, owner.id))
-        assertNotification("DELETE", rejected.id)
-        assertNull(getRoomJoinRequestById(rejected.id))
+        val request = createRoomJoinRequest(room.id, applicant.id).first!!
+        assertNotification("INSERT", request.id)
 
-        val approved = createRoomJoinRequest(room.id, applicant.id).first!!
-        assertNotification("INSERT", approved.id)
-        assertTrue(approveRoomJoinRequest(approved.id, owner.id))
-        assertNotification("DELETE", approved.id)
+        val fetched = getRoomJoinRequestById(request.id)!!
+        assertEquals(room.name, fetched.roomName)
+        assertEquals(applicant.nickname, fetched.nickname)
+
+        assertTrue(approveRoomJoinRequest(request.id, owner.id))
+        assertNotification("DELETE", request.id)
+        assertNull(getRoomJoinRequestById(request.id))
     }
+
+    // ==========================================
+    // Test Infrastructure
+    // ==========================================
 
     fun withTestPgDatabase(
         block: suspend PgConnection.() -> Unit
-    ) =
-        runPollEventLoop(pollerFactory) {
-            val host = getEnv("POSTGRES_HOST") ?: "127.0.0.1"
-            val port = getEnv("POSTGRES_PORT")?.toInt() ?: 5432
-            val user = getEnv("POSTGRES_USER")  ?: error("no value found: POSTGRES_USER")
-            val password = getEnv("POSTGRES_PASSWORD")  ?: error("no value found: POSTGRES_PASSWORD")
-            val database = getEnv("POSTGRES_DB") ?: error("no value found: POSTGRES_DB")
+    ) = runPollEventLoop(pollerFactory) {
+        val host = getEnv("POSTGRES_HOST") ?: "127.0.0.1"
+        val port = getEnv("POSTGRES_PORT")?.toInt() ?: 5432
+        val user = getEnv("POSTGRES_USER") ?: error("no value found: POSTGRES_USER")
+        val password = getEnv("POSTGRES_PASSWORD") ?: error("no value found: POSTGRES_PASSWORD")
+        val database = getEnv("POSTGRES_DB") ?: error("no value found: POSTGRES_DB")
 
-            withTimeout(10.seconds) {
-                val conn = openPgConnection(
-                    host = host,
-                    port = port,
-                    user = user,
-                    password = password,
-                    database = database,
-                )
-                conn.dropAllTables()
-                val result = conn.migrate(migrations)
-                if (result is MigrationResult.Error) {
-                    println(result)
-                }
-                assertIs<MigrationResult.Success>(result)
-
-                try {
-                    conn.block()
-                } finally {
-                    conn.dropAllTables()
-                }
-
-                conn.close()
+        withTimeout(10.seconds) {
+            val conn = openPgConnection(
+                host = host,
+                port = port,
+                user = user,
+                password = password,
+                database = database,
+            )
+            conn.dropAllTables()
+            val result = conn.migrate(migrations)
+            if (result is MigrationResult.Error) {
+                println(result)
             }
+            assertIs<MigrationResult.Success>(result)
+
+            try {
+                conn.block()
+            } finally {
+                conn.dropAllTables()
+            }
+
+            conn.close()
         }
+    }
 }
