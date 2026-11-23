@@ -1,6 +1,7 @@
 package kio.chat.components
 
 import kio.chat.domain.Message
+import kio.chat.domain.RoomRole
 import kio.chat.domain.UserChatEvent
 import kio.chat.util.*
 import kotlinx.html.*
@@ -8,29 +9,36 @@ import kotlinx.html.*
 private fun ARTICLE.messageItem(message: Message, isMine: Boolean, roomId: Long) {
     id = "message-${message.id}"
     attributes["data-mine"] = isMine.toString()
-    attributes["data-chat-room-id"] = roomId.toString()
-    p {
-        strong { +"${message.nickname}: " }
-        +message.text
+    div(classes = "message-header") {
+        span(classes = "message-sender") { +message.nickname }
+        when (message.member.role) {
+            RoomRole.Owner -> span(classes = "message-role message-role-owner") { +"群主" }
+            RoomRole.Member -> {}
+        }
     }
-    if (isMine) {
-        details(classes = "menu message-menu") {
-            summary(classes = "menu-trigger") {
-                attributes["aria-label"] = "消息选项"
-                +"⋯"
-            }
-            div(classes = "menu-popup") {
-                button(type = ButtonType.button, classes = "menu-item") {
-                    hxGet = "/rooms/$roomId/messages/${message.id}/editor"
-                    hxTarget = "closest article"
-                    hxSwap = "outerHTML"
-                    +"编辑"
+    div(classes = "message-bubble") {
+        p(classes = "message-text") {
+            +message.text
+        }
+        if (isMine) {
+            details(classes = "menu message-menu") {
+                summary(classes = "menu-trigger") {
+                    attributes["aria-label"] = "消息操作"
+                    +"⋯"
                 }
-                button(type = ButtonType.button, classes = "menu-item") {
-                    hxDelete = "/rooms/$roomId/messages/${message.id}"
-                    hxSwap = "none"
-                    hxConfirm = "确定删除这条消息吗？"
-                    +"删除"
+                div(classes = "menu-popup") {
+                    button(type = ButtonType.button, classes = "menu-item") {
+                        hxGet = "/rooms/$roomId/messages/${message.id}/editor"
+                        hxTarget = "closest article"
+                        hxSwap = "outerHTML"
+                        +"编辑"
+                    }
+                    button(type = ButtonType.button, classes = "menu-item menu-item-danger") {
+                        hxDelete = "/rooms/$roomId/messages/${message.id}"
+                        hxSwap = "none"
+                        hxConfirm = "确定删除这条消息吗？此操作无法撤销。"
+                        +"删除"
+                    }
                 }
             }
         }
@@ -79,10 +87,10 @@ fun TagConsumer<*>.messageHistory(messages: List<Message>, currentUserId: Long, 
 }
 
 private fun TagConsumer<*>.messageHistoryControl(beforeId: Long?, hasMore: Boolean, roomId: Long) {
-    div {
+    div(classes = "message-history-wrapper") {
         id = "message-history"
         if (hasMore && beforeId != null) {
-            button(type = ButtonType.button) {
+            button(type = ButtonType.button, classes = "load-history-button") {
                 hxGet = "/rooms/$roomId/messages?beforeId=$beforeId"
                 hxTarget = "#message-history"
                 hxSwap = "outerHTML"
@@ -97,7 +105,7 @@ fun TagConsumer<*>.chatMessageEvent(event: UserChatEvent, userId: Long) {
     when (event) {
         is UserChatEvent.Added -> {
             div {
-                id = "messages"
+                id = "messages-${event.roomId}"
                 hxSwapOob = "beforeend"
                 messageView(event.message, event.message.member.userId == userId, event.roomId)
             }

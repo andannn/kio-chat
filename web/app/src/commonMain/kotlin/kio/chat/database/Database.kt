@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -123,6 +124,7 @@ data class ChatMessageWithUserEntity(
     @SerialName("password_hash")
     val passwordHash: PgText,
     @SerialName("nickname") val nickname: PgText,
+    @SerialName("role") val role: PgText? = null,
 )
 
 suspend fun PgConnection.getMessageList(beforeId: Long?, limit: Int, roomId: Long): List<ChatMessageWithUserEntity> {
@@ -131,9 +133,10 @@ suspend fun PgConnection.getMessageList(beforeId: Long?, limit: Int, roomId: Lon
 
     return query<ChatMessageWithUserEntity>(
         """
-        SELECT m.id, m.room_id, m.user_id, m.text, m.create_at, u.username, u.password_hash, u.nickname
+        SELECT m.id, m.room_id, m.user_id, m.text, m.create_at, u.username, u.password_hash, u.nickname, rm.role
         FROM messages m
         JOIN users u ON u.id = m.user_id
+        LEFT JOIN room_members rm ON rm.room_id = m.room_id AND rm.user_id = m.user_id
         WHERE m.room_id = $1 $whereClause
         ORDER BY m.id DESC
         LIMIT $limit
@@ -146,9 +149,10 @@ suspend fun PgConnection.getMessageList(beforeId: Long?, limit: Int, roomId: Lon
 suspend fun PgConnection.getMessageById(messageId: Long): ChatMessageWithUserEntity? =
     query<ChatMessageWithUserEntity>(
         """
-        SELECT m.id, m.room_id, m.user_id, m.text, m.create_at, u.username, u.password_hash, u.nickname
+        SELECT m.id, m.room_id, m.user_id, m.text, m.create_at, u.username, u.password_hash, u.nickname, rm.role
         FROM messages m
         JOIN users u ON u.id = m.user_id
+        LEFT JOIN room_members rm ON rm.room_id = m.room_id AND rm.user_id = m.user_id
         WHERE m.id = $1
         """.trimIndent()
     ) {
@@ -275,6 +279,21 @@ suspend fun PgConnection.getRoomMembers(roomId: Long): List<ChatRoomMemberEntity
         param(roomId, PostgresInt8Serializer)
     }.toList()
 
+suspend fun PgConnection.getRoomMemberById(roomId: Long, userId: Long): ChatRoomMemberEntity? =
+    query<ChatRoomMemberEntity>(
+        """
+        SELECT u.id, u.nickname, rm.role
+        FROM room_members rm
+        JOIN users u ON u.id = rm.user_id
+        WHERE rm.room_id = $1 AND u.id = $2
+        ORDER BY u.id
+        LIMIT 1
+        """.trimIndent()
+    ) {
+        param(roomId, PostgresInt8Serializer)
+        param(userId, PostgresInt8Serializer)
+    }.firstOrNull()
+
 suspend fun PgConnection.getRoomOwners(roomId: Long): List<ChatRoomMemberEntity> =
     query<ChatRoomMemberEntity>(
         """
@@ -287,6 +306,21 @@ suspend fun PgConnection.getRoomOwners(roomId: Long): List<ChatRoomMemberEntity>
     ) {
         param(roomId, PostgresInt8Serializer)
     }.toList()
+
+suspend fun PgConnection.getOwnedRoomIds(userId: Long): List<Long> {
+    @Serializable
+    data class Result(val roomId: PgInt8)
+    return query<Result>(
+        """
+        SELECT room_id
+        FROM room_members
+        WHERE user_id = $1 AND role = 'owner'
+        ORDER BY room_id
+        """.trimIndent()
+    ) {
+        param(userId, PostgresInt8Serializer)
+    }.map { it.roomId }.toList()
+}
 
 enum class CreateRoomJoinRequestError {
     RoomNotExist,

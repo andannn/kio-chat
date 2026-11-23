@@ -5,8 +5,8 @@ import kio.chat.components.*
 import kio.chat.domain.MessagePage
 import kio.chat.util.respondByContentType
 import kio.chat.domain.Repository
+import kio.chat.util.json
 import kio.http.*
-import kotlinx.serialization.json.Json
 
 context(repo: Repository)
 fun Route.messagesRoute() {
@@ -18,7 +18,7 @@ fun Route.messagesRoute() {
             get { call -> call.handleGetMessage() }
             patch { call -> call.handleUpdateMessage() }
             delete { call -> call.handleDeleteMessage() }
-            get("/editor") { call -> call.handleGetEditingMessage() }
+            get("editor") { call -> call.handleGetEditingMessage() }
         }
     }
 }
@@ -36,7 +36,7 @@ private suspend fun CallContext.handleGetMessageHistory() {
     val page = MessagePage(messages.takeLast(50), hasMore = messages.size > 50, userId = userId)
     respondByContentType(
         status = HttpStatusCode.OK,
-        buildJson = { Json.encodeToString(page) },
+        buildJson = { json(page) },
         buildHtml = { messageHistory(page.messages, userId, page.hasMore, roomId) },
     )
 }
@@ -69,9 +69,7 @@ private suspend fun CallContext.handleGetMessage() {
         respond(HttpStatusCode.NotFound)
         return
     }
-    respondHtml {
-        messageView(message, isMine = true, roomId = roomId)
-    }
+    respondHtml { messageView(message, isMine = true, roomId = roomId) }
 }
 
 context(repo: Repository)

@@ -44,7 +44,7 @@ private fun retainHomeState(
     rootNavigator: RootNavigator,
     navigator: MainNavigator,
     service: ChatService = getKoin().get(),
-    repository: UserRepository = LocalUserRepository.current,
+    repository: UserRepository = getKoin().get(),
     snackBarController: SnackBarController = LocalSnackBarController.current,
 ) = retainPresenter(rootNavigator, navigator, repository, service, snackBarController) {
     HomeLayoutPresenter(rootNavigator, navigator, repository, service, snackBarController)
@@ -70,8 +70,8 @@ private class HomeLayoutPresenter(
     val service: ChatService,
     val snackBarController: SnackBarController,
 ) : RetainedPresenter<HomeLayoutState>() {
-    private val rooms = repository.observeRooms().stateInRetainedModel(emptyList())
-    private val requests = repository.observeRoomJoinRequest().stateInRetainedModel(emptyList())
+    private val rooms = repository.observeRooms(::handleApiError).stateInRetainedModel(emptyList())
+    private val requests = repository.observeRoomJoinRequest(::handleApiError).stateInRetainedModel(emptyList())
     private var submitting = false
     private var creating = false
 
@@ -133,6 +133,12 @@ private class HomeLayoutPresenter(
                     HomeUiEvent.OnLogoutClick -> logout()
                 }
             }
+        }
+    }
+
+    private suspend fun handleApiError(error: ApiError) {
+        context(rootNavigator, snackBarController) {
+            handleError(error)
         }
     }
 }
@@ -273,7 +279,7 @@ private fun HomeContent(
             } else {
                 item {
                     Text(
-                        "我的聊天室 · ${rooms.size}",
+                        "我的聊天室",
                         style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),

@@ -77,6 +77,20 @@ android {
         buildConfig = true
         compose = true
     }
+
+    flavorDimensions += "environment"
+    productFlavors {
+        create("local") {
+            dimension = "environment"
+            buildConfigField("String", "BASE_URL", "\"http://127.0.0.1\"")
+            buildConfigField("String", "BASE_WS_URL", "\"ws://127.0.0.1\"")
+        }
+        create("prod") {
+            dimension = "environment"
+            buildConfigField("String", "BASE_URL", "\"https://133.117.75.202\"")
+            buildConfigField("String", "BASE_WS_URL", "\"wss://133.117.75.202\"")
+        }
+    }
 }
 
 kotlin {
@@ -116,9 +130,9 @@ dependencies {
 tasks.register<Copy>("prepareKchatDist") {
     group = "distribution"
     description = "Build and copy the signed release APK to build/dist/kchat."
-    dependsOn("assembleRelease")
+    dependsOn("assembleProdRelease")
 
-    val apk = layout.buildDirectory.file("outputs/apk/release/android-release.apk")
+    val apk = layout.buildDirectory.file("outputs/apk/prod/release/android-prod-release.apk")
     doFirst {
         check(apk.get().asFile.isFile) { "Release APK not found: ${apk.get().asFile}" }
     }

@@ -34,7 +34,7 @@ fun EntryProviderScope<NavKey>.roomJoinRequestsEntry(rootNavigator: RootNavigato
 private fun retainRoomJoinRequestsState(
     rootNavigator: RootNavigator,
     navigator: MainNavigator,
-    repository: UserRepository = LocalUserRepository.current,
+    repository: UserRepository = getKoin().get(),
     service: ChatService = getKoin().get(),
     snackBarController: SnackBarController = LocalSnackBarController.current,
 ) = retainPresenter(rootNavigator, navigator, repository, service, snackBarController) {
@@ -59,7 +59,7 @@ private class RoomJoinRequestsLayoutPresenter(
     private val service: ChatService,
     private val snackBarController: SnackBarController,
 ) : RetainedPresenter<RoomJoinRequestsLayoutState>() {
-    private val requests = repository.observeRoomJoinRequest().stateInRetainedModel(emptyList())
+    private val requests = repository.observeRoomJoinRequest(::handleApiError).stateInRetainedModel(emptyList())
 
     private fun reviewRequest(requestId: Long, approve: Boolean) {
         retainedScope.launch {
@@ -80,6 +80,12 @@ private class RoomJoinRequestsLayoutPresenter(
                 is RoomJoinRequestsUiEvent.OnApprove -> reviewRequest(event.requestId, approve = true)
                 is RoomJoinRequestsUiEvent.OnReject -> reviewRequest(event.requestId, approve = false)
             }
+        }
+    }
+
+    private suspend fun handleApiError(error: ApiError) {
+        context(rootNavigator, snackBarController) {
+            handleError(error)
         }
     }
 }

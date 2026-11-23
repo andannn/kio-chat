@@ -3,46 +3,36 @@ package me.andannn.kio.chat
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
-import androidx.compose.runtime.compositionLocalOf
-import kio.chat.domain.RoomMember
-import kio.chat.domain.RtcIceCandidate
-import kio.chat.domain.VoiceCallMessage
-import kio.chat.domain.VoiceCallRequest
-import kio.chat.domain.VoiceParticipantsEvent
-import kio.chat.domain.VoiceSignalingEvent
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.NonCancellable
+import kio.chat.domain.*
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
-import org.webrtc.AudioSource
-import org.webrtc.AudioTrack
-import org.webrtc.MediaConstraints
-import org.webrtc.PeerConnection
-import org.webrtc.PeerConnectionFactory
+import org.webrtc.*
 import org.webrtc.audio.JavaAudioDeviceModule
 
-val LocalVoiceCallRepository = compositionLocalOf<VoiceCallRepository> { error("no Local VoiceCallRepository") }
-
-data class VoiceCallState(val roomId: Long? = null, val muted: Boolean = false)
+data class VoiceCallState(
+    val roomId: Long? = null,
+    val muted: Boolean = true,
+    val audioDeviceName: String? = null,
+)
 
 interface VoiceCallRepository {
     fun CoroutineScope.startObservingEvents(): Job
     val callState: StateFlow<VoiceCallState>
-    suspend fun getParticipants(roomId: Long): ApiResult<List<RoomMember>>
-    fun observeParticipantEvents(roomId: Long): Flow<VoiceParticipantsEvent>
     // The UI obtains microphone permission before joining.
     suspend fun join(roomId: Long): ApiError?
     suspend fun leave(): ApiError?
@@ -68,7 +58,54 @@ class VoiceCallRepositoryImpl(
     private var audioSource: AudioSource? = null
     private var audioTrack: AudioTrack? = null
 
+    private fun observeAudioDeviceName(): Flow<String> = callbackFlow {
+        trySend(getCurrentAudioDeviceName())
+        val callback = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
+                trySend(getCurrentAudioDeviceName())
+            }
+
+            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+                trySend(getCurrentAudioDeviceName())
+            }
+        }
+        audioManager.registerAudioDeviceCallback(callback, Handler(Looper.getMainLooper()))
+        awaitClose {
+            audioManager.unregisterAudioDeviceCallback(callback)
+        }
+    }.distinctUntilChanged()
+
+    private fun getCurrentAudioDeviceName(): String {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            audioManager.communicationDevice?.let { return formatAudioDeviceName(it) }
+        }
+        val inputs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+        val preferredInput = inputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+            ?: inputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET || it.type == AudioDeviceInfo.TYPE_USB_HEADSET }
+            ?: inputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
+            ?: inputs.firstOrNull()
+        return preferredInput?.let { formatAudioDeviceName(it) } ?: "麦克风"
+    }
+
+    private fun formatAudioDeviceName(device: AudioDeviceInfo): String {
+        val productName = device.productName?.toString()?.trim().orEmpty()
+        if (productName.isNotEmpty()) return productName
+        return when (device.type) {
+            AudioDeviceInfo.TYPE_BUILTIN_MIC -> "内置麦克风"
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLE_HEADSET -> "蓝牙耳机"
+            AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_USB_HEADSET -> "有线耳机"
+            AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "听筒"
+            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "扬声器"
+            else -> "音频设备"
+        }
+    }
+
     override fun CoroutineScope.startObservingEvents(): Job = launch(start = CoroutineStart.UNDISPATCHED) {
+        launch {
+            observeAudioDeviceName().collect { name ->
+                state.value = state.value.copy(audioDeviceName = name)
+            }
+        }
         try {
             eventSource.events.collect { event ->
                 if (event !is VoiceSignalingEvent && event !is VoiceParticipantsEvent.Removed) return@collect
@@ -96,11 +133,6 @@ class VoiceCallRepositoryImpl(
         }
     }
 
-    override suspend fun getParticipants(roomId: Long) = service.getVoiceParticipants(roomId)
-
-    override fun observeParticipantEvents(roomId: Long): Flow<VoiceParticipantsEvent> =
-        eventSource.events.filterIsInstance<VoiceParticipantsEvent>().filter { it.roomId == roomId }
-
     override suspend fun join(roomId: Long): ApiError? = mutex.withLock {
         val wsSessionId = eventSource.wsSessionId ?: return@withLock ApiError.ServerError("语音连接尚未就绪。")
         if (call?.roomId == roomId) return@withLock null
@@ -120,7 +152,11 @@ class VoiceCallRepositoryImpl(
                 closeLocal()
                 return@withLock error
             }
-            state.value = VoiceCallState(roomId)
+            state.value = state.value.copy(
+                roomId = roomId,
+                muted = true,
+                audioDeviceName = getCurrentAudioDeviceName(),
+            )
             null
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) { leaveInternal() }
@@ -239,7 +275,7 @@ class VoiceCallRepositoryImpl(
         val device = JavaAudioDeviceModule.builder(context).createAudioDeviceModule().also { audioDevice = it }
         val peerFactory = PeerConnectionFactory.builder().setAudioDeviceModule(device).createPeerConnectionFactory().also { factory = it }
         val source = peerFactory.createAudioSource(MediaConstraints()).also { audioSource = it }
-        audioTrack = peerFactory.createAudioTrack("voice", source)
+        audioTrack = peerFactory.createAudioTrack("voice", source).also { it.setEnabled(false) }
     }
 
     private fun closeLocal() {

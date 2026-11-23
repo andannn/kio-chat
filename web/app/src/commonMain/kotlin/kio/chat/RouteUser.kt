@@ -10,6 +10,8 @@ import kio.chat.domain.RoomJoinRequestEvent
 import kio.chat.domain.RoomListEvent
 import kio.chat.domain.UserEvent
 import kio.chat.domain.WebSocketSessionReady
+import kio.chat.util.html
+import kio.chat.util.json
 import kio.http.WebsocketContext
 import kio.http.currentLogger
 import kio.http.info
@@ -24,35 +26,33 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
-import kotlinx.html.stream.createHTML
-import kotlinx.serialization.json.Json
 import kotlin.time.Duration.Companion.seconds
 
 context(repo: Repository)
-internal suspend fun WebsocketContext.handleObserveUserEvent() = coroutineScope {
+internal suspend fun WebsocketContext.handleObserveUserEvent(): Unit = coroutineScope {
     val myId = requireSession().userId
     val isJson = call.requestParameters["format"] == "json"
-    val selectedRoomId = call.requestParameters["selectedRoomId"]?.toLongOrNull()
     currentLogger().info("[voice] WebSocket connected: user=$myId")
 
-    val currentRoomIds = mutableListOf<Long>()
+    val currentRoomIds = mutableSetOf<Long>()
+    val ownedRoomIds = mutableSetOf<Long>()
     val wsSessionId = repo.openWsSession(myId)
 
+    listeningRoomList(currentRoomIds, ownedRoomIds, myId)
     launch {
         try {
-            sendText(Json.encodeToString<UserEvent>(WebSocketSessionReady(wsSessionId)))
-            while (true) { delay(10.seconds) }
+            sendText(json<UserEvent>(WebSocketSessionReady(wsSessionId)))
+            while (true) delay(20.seconds)
         } finally {
             withContext(NonCancellable) { repo.closeWsSession(wsSessionId) }
         }
     }
 
-    forwardRoomJoinRequest(this@handleObserveUserEvent, myId, isJson)
-    forwardRoomListEvent(currentRoomIds, this@handleObserveUserEvent, myId, isJson, selectedRoomId)
+    forwardRoomJoinRequest(ownedRoomIds, this@handleObserveUserEvent, isJson)
+    forwardRoomListEvent(currentRoomIds, this@handleObserveUserEvent, myId, isJson)
     forwardChatEvent(currentRoomIds, this@handleObserveUserEvent, myId, isJson)
     forwardVoiceParticipants(currentRoomIds, this@handleObserveUserEvent, isJson)
     forwardVoiceSignaling(this@handleObserveUserEvent, myId, wsSessionId)
@@ -60,7 +60,7 @@ internal suspend fun WebsocketContext.handleObserveUserEvent() = coroutineScope 
 
 context(repo: Repository)
 private fun CoroutineScope.forwardVoiceParticipants(
-    roomIds: List<Long>,
+    roomIds: Set<Long>,
     ws: WebsocketContext,
     isJson: Boolean,
 ) = launch(start = CoroutineStart.UNDISPATCHED) {
@@ -68,23 +68,23 @@ private fun CoroutineScope.forwardVoiceParticipants(
         .filter { it.roomId in roomIds }
         .collect { change ->
             val event: VoiceParticipantsEvent = if (change.joined) {
-                val member = repo.getRoomMembers(change.roomId)
-                    .firstOrNull { it.userId == change.userId } ?: return@collect
+                val member = repo.getRoomMemberById(change.roomId, change.userId) ?: return@collect
                 VoiceParticipantsEvent.Added(change.roomId, member)
             } else {
                 VoiceParticipantsEvent.Removed(change.roomId, change.userId)
             }
+
             if (isJson) {
-                ws.sendText(Json.encodeToString<UserEvent>(event))
+                ws.sendText(json<UserEvent>(event))
             } else {
-                ws.sendText(createHTML().apply { voiceParticipantEvent(event) }.finalize())
+                ws.sendText(html { voiceParticipantEvent(event) })
             }
         }
 }
 
 context(repo: Repository)
 private fun CoroutineScope.forwardChatEvent(
-    roomIds: List<Long>,
+    roomIds: Set<Long>,
     ws: WebsocketContext,
     myId: Long,
     isJson: Boolean,
@@ -94,89 +94,95 @@ private fun CoroutineScope.forwardChatEvent(
         .filter { roomIds.contains(it.event.roomId) }
         .collect { (event) ->
             if (isJson) {
-                ws.sendText(Json.encodeToString<UserEvent>(event))
+                ws.sendText(json<UserEvent>(event))
             } else {
-                ws.sendText(createHTML().apply {
-                    chatMessageEvent(event, myId)
-                }.finalize())
+                ws.sendText(html { chatMessageEvent(event, myId) })
             }
         }
 }
 
 context(repo: Repository)
-private fun CoroutineScope.forwardRoomListEvent(
-    roomIds: MutableList<Long>,
-    ws: WebsocketContext,
+private fun CoroutineScope.listeningRoomList(
+    roomIds: MutableSet<Long>,
+    ownedRoomIds: MutableSet<Long>,
     myId: Long,
-    isJson: Boolean,
-    selectedRoomId: Long?
 ) = launch {
-    flow {
-        repo.getMessageEventSharedFlow()
-            .onSubscription {
-                val requests = repo.getRoomList(myId)
-                roomIds.addAll(requests.map { it.id })
-
-                this@flow.emit(RoomListEvent.Initial(requests))
-            }
-            .filterIsInstance<MessageEvent.RoomsMessage>()
-            .filter { it.userId == myId }
-            .collect { message ->
-                when (val event = message.event) {
-                    is RoomListEvent.Added -> if (roomIds.add(event.room.id)) emit(event)
-                    is RoomListEvent.Deleted -> if (roomIds.remove(event.roomId)) emit(event)
-                    is RoomListEvent.Changed -> if (event.room.id in roomIds) emit(event)
-                    is RoomListEvent.Initial -> Unit
-                }
-            }
-    }.collect { event ->
-        if (isJson) {
-            ws.sendText(Json.encodeToString<UserEvent>(event))
-        } else {
-            ws.sendText(createHTML().apply {
-                when (event) {
-                    is RoomListEvent.Initial -> roomListInitial(event.rooms, selectedRoomId)
-                    is RoomListEvent.Added -> roomListAdded(event.room)
-                    is RoomListEvent.Deleted -> roomListDeleted(event.roomId)
-                    is RoomListEvent.Changed -> roomListChanged(event.room)
-                }
-            }.finalize())
+    repo.getMessageEventSharedFlow()
+        .onSubscription {
+            val rooms = repo.getRoomList(myId)
+            roomIds.addAll(rooms.map { it.id })
+            val owned = repo.getOwnedRoomIds(myId)
+            ownedRoomIds.addAll(owned)
         }
-    }
+        .filterIsInstance<MessageEvent.UserRoomEvent>()
+        .filter { it.userId == myId }
+        .collect { message ->
+            when (message) {
+                is MessageEvent.UserRoomAddEvent -> {
+                    roomIds.add(message.event.room.id)
+                    if (repo.isRoomOwner(message.event.room.id, myId)) {
+                        ownedRoomIds.add(message.event.room.id)
+                    }
+                }
+                is MessageEvent.UserRoomDeleteEvent -> {
+                    roomIds.remove(message.event.roomId)
+                    ownedRoomIds.remove(message.event.roomId)
+                }
+            }
+        }
 }
 
 context(repo: Repository)
-private fun CoroutineScope.forwardRoomJoinRequest(ws: WebsocketContext, myId: Long, isJson: Boolean) = launch {
-    val ids = mutableSetOf<Long>()
-    flow {
-        repo.getMessageEventSharedFlow()
-            .onSubscription {
-                val requests = repo.getRoomJoinRequests(myId)
-                ids.addAll(requests.map { it.id })
-                this@flow.emit(RoomJoinRequestEvent.Initial(requests))
+private fun CoroutineScope.forwardRoomListEvent(roomIds: Set<Long>, ws: WebsocketContext, myId: Long, isJson: Boolean) = launch {
+    repo.getMessageEventSharedFlow()
+        .collect { message ->
+            val userEvent = when (message) {
+                is MessageEvent.RoomChangeEvent -> if (roomIds.contains(message.event.room.id)) {
+                    message.event
+                } else {
+                    null
+                }
+                is MessageEvent.UserRoomAddEvent -> if (message.userId == myId) message.event else null
+                is MessageEvent.UserRoomDeleteEvent -> if (message.userId == myId) message.event else null
+                else -> null
             }
-            .filterIsInstance<MessageEvent.RoomJoinRequestMessageEvent>()
-            .collect { (eventUserId, event) ->
-                if (eventUserId != myId) return@collect
-                when (event) {
-                    is RoomJoinRequestEvent.Added -> if (ids.add(event.request.id)) emit(event)
-                    is RoomJoinRequestEvent.Removed -> if (ids.remove(event.requestId)) emit(event)
-                    is RoomJoinRequestEvent.Initial -> Unit
+
+            if (userEvent != null) {
+                if (isJson) {
+                    ws.sendText(json<UserEvent>(userEvent))
+                } else {
+                    ws.sendText(html {
+                        when (userEvent) {
+                            is RoomListEvent.Added -> roomListAdded(userEvent.room)
+                            is RoomListEvent.Deleted -> roomListDeleted(userEvent.roomId)
+                            is RoomListEvent.Changed -> roomListChanged(userEvent.room)                        }
+                    })
                 }
             }
-    }.collect { event ->
-        if (isJson) {
-            ws.sendText(Json.encodeToString<UserEvent>(event))
-        } else {
-            ws.sendText(createHTML().apply {
-                when (event) {
-                    is RoomJoinRequestEvent.Initial -> roomJoinRequestInitial(event.requests)
-                    is RoomJoinRequestEvent.Added -> roomJoinRequestAdded(event.request)
-                    is RoomJoinRequestEvent.Removed -> roomJoinRequestRemoved(event.requestId)
-                }
-            }.finalize())
         }
-    }
+}
+
+context(repo: Repository)
+private fun CoroutineScope.forwardRoomJoinRequest(
+    ownedRoomIds: Set<Long>,
+    ws: WebsocketContext,
+    isJson: Boolean,
+) = launch {
+    repo.getMessageEventSharedFlow()
+        .filterIsInstance<MessageEvent.RoomJoinRequestMessageEvent>()
+        .filter { it.roomId in ownedRoomIds }
+        .collect { (_, event) ->
+            if (isJson) {
+                ws.sendText(json<UserEvent>(event))
+            } else {
+                ws.sendText(html {
+                    when (event) {
+                        is RoomJoinRequestEvent.Added -> roomJoinRequestAdded(event.request)
+                        is RoomJoinRequestEvent.Removed -> roomJoinRequestRemoved(event.requestId)
+                    }
+                })
+            }
+        }
 }
 
 context(repo: Repository)
@@ -200,11 +206,11 @@ private fun CoroutineScope.forwardVoiceSignaling(ws: WebsocketContext, myId: Lon
             negotiationsByUserId[senderUserId] = launch {
                 withTimeout(30.seconds) {
                     currentLogger().info("[voice] requesting offer: room=$roomId from=$myId to=${senderUserId}")
-                    ws.sendText(Json.encodeToString<UserEvent>(VoiceSignalingEvent.OfferRequested(roomId, senderUserId)))
+                    ws.sendText(json<UserEvent>(VoiceSignalingEvent.OfferRequested(roomId, senderUserId)))
                     currentLogger().info("[voice] waiting answer: room=$roomId from=${senderUserId} to=$myId")
                     val answer = repo.awaitAnswerFrom(roomId, recipientWsSessionId = wsSessionId, senderUserId = senderUserId)
                     currentLogger().info("[voice] forwarding answer: room=$roomId from=${senderUserId} to=$myId")
-                    ws.sendText(Json.encodeToString<UserEvent>(VoiceSignalingEvent.AnswerReceived(roomId, senderUserId, answer.description)))
+                    ws.sendText(json<UserEvent>(VoiceSignalingEvent.AnswerReceived(roomId, senderUserId, answer.description)))
                 }
             }.also {
                 it.invokeOnCompletion {
@@ -217,14 +223,14 @@ private fun CoroutineScope.forwardVoiceSignaling(ws: WebsocketContext, myId: Lon
     fun forwardIncomingOffers(roomId: Long) = launch {
         repo.observeIncomingOffer(roomId, wsSessionId).collect {  (senderUserId, offer) ->
             currentLogger().info("[voice] forwarding offer: room=$roomId from=${senderUserId} to=$myId")
-            ws.sendText(Json.encodeToString<UserEvent>(VoiceSignalingEvent.OfferReceived(roomId, senderUserId, offer.description)))
+            ws.sendText(json<UserEvent>(VoiceSignalingEvent.OfferReceived(roomId, senderUserId, offer.description)))
         }
     }
 
     fun forwardIncomingIceCandidates(roomId: Long) = launch {
         repo.observeIncomingIceCandidate(roomId, wsSessionId).collect { (senderUserId, candidate) ->
             currentLogger().info("[voice] forwarding candidate: room=$roomId from=${senderUserId} to=$myId")
-            ws.sendText(Json.encodeToString<UserEvent>(VoiceSignalingEvent.IceCandidateReceived(roomId, senderUserId, candidate.iceCandidate)))
+            ws.sendText(json<UserEvent>(VoiceSignalingEvent.IceCandidateReceived(roomId, senderUserId, candidate.iceCandidate)))
         }
     }
 
@@ -258,4 +264,3 @@ private fun CoroutineScope.forwardVoiceSignaling(ws: WebsocketContext, myId: Lon
         }
     }
 }
-

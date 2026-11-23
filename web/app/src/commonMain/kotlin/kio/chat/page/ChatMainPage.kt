@@ -16,6 +16,7 @@ fun TagConsumer<*>.chatHead(title: String) {
         script(src = Config.HTMX_MIN_JS) { }
         script(src = Config.HTMX_WS_JS) { }
         script(src = Config.APP_JS) { attributes["defer"] = "defer" }
+        script(src = Config.WEBRTC_JS) { attributes["defer"] = "defer" }
         link(rel = "stylesheet", href = Config.APP_CSS)
         title { +title }
     }
@@ -28,11 +29,11 @@ suspend fun CallContext.chatMainPage(roomId: Long? = null) {
     }) {
         chatHead("Kio Chat")
         body(classes = "app chat-body") {
-            attributes["hx-on:htmx:oob-before-swap"] = "filterUserEventSwap(event)"
             aside(classes = "sidebar") {
+                id = "sidebar"
                 attributes["hx-ext"] = "ws"
-                attributes["ws-connect"] = "/events?selectedRoomId=${roomId?.toString().orEmpty()}"
-                roomAsideMenu()
+                attributes["ws-connect"] = "/events"
+                roomAsideMenu(roomId)
             }
             main(classes = "chat-layout") {
                 id = "room-content"

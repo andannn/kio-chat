@@ -4,7 +4,6 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import kio.async.readString
 import kio.chat.util.respondByContentType
-import kotlinx.serialization.json.Json
 import kio.chat.domain.RoomMembersPage
 import kio.chat.domain.Repository
 import kio.chat.domain.VoiceCallMessage
@@ -26,6 +25,8 @@ import kio.http.delete
 import kio.http.receiveFormParameters
 import kotlinx.html.div
 import kio.chat.page.chatMainPage
+import kio.chat.util.decodeJson
+import kio.chat.util.json
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.AbstractCoroutineContextElement
@@ -42,11 +43,13 @@ fun Route.roomRoute() {
                 get { call -> call.chatMainPage(requireRoomId()) }
                 delete { call -> call.handleDeleteRoom() }
                 get("members") { call -> call.handleGetRoomMembers() }
-                get("voice/members") { call -> call.handleGetVoiceParticipants() }
                 get("content") { call -> call.handleGetRoomContent() }
                 post("name-editing") { call -> call.handleEditRoomName() }
                 post("name-commit") { call -> call.handleCommitRoomName() }
                 post("events") { call -> call.handleRoomEvent() }
+                route("voice") {
+                    get("members") { call -> call.handleGetVoiceParticipants() }
+                }
                 messagesRoute()
             }
         }
@@ -56,7 +59,7 @@ fun Route.roomRoute() {
 context(repo: Repository)
 private suspend fun CallContext.handleRoomEvent() {
     val body = requestBody.readString()
-    val request = Json.decodeFromString<VoiceCallRequest>(body)
+    val request = decodeJson<VoiceCallRequest>(body)
     val message = request.message
 
     val roomId = requireRoomId()
@@ -110,7 +113,7 @@ private suspend fun CallContext.handleCreateRoom() {
         val message = "给聊天室起个名字吧。"
         respondByContentType(
             status = HttpStatusCode.BadRequest,
-            buildJson = { Json.encodeToString(message) },
+            buildJson = { json(message) },
             buildHtml = { div { +message } },
         )
         return
@@ -119,7 +122,7 @@ private suspend fun CallContext.handleCreateRoom() {
     respondByContentType(
         status = HttpStatusCode.Created,
         configHeaders = { append("HX-Redirect", "/rooms/${room.id}") },
-        buildJson = { Json.encodeToString(room) },
+        buildJson = { json(room) },
         buildHtml = {},
     )
 }
@@ -130,7 +133,7 @@ private suspend fun CallContext.handleGetRoomList() {
     val selectedRoomId = requestParameters["selectedRoomId"]?.toLongOrNull()
     respondByContentType(
         status = HttpStatusCode.OK,
-        buildJson = { Json.encodeToString(rooms) },
+        buildJson = { json(rooms) },
         buildHtml = { roomList(rooms, selectedRoomId) },
     )
 }
@@ -154,7 +157,7 @@ private suspend fun CallContext.handleGetVoiceParticipants() {
     respondByContentType(
         status = HttpStatusCode.OK,
         configHeaders = { append(HttpHeaders.CacheControl, "no-store") },
-        buildJson = { Json.encodeToString(members) },
+        buildJson = { json(members) },
         buildHtml = { voiceParticipantList(roomId, members) },
     )
 }
@@ -165,7 +168,7 @@ private suspend fun CallContext.handleGetRoomMembers() {
     val page = RoomMembersPage(requireSession().userId, members)
     respondByContentType(
         status = HttpStatusCode.OK,
-        buildJson = { Json.encodeToString(page) },
+        buildJson = { json(page) },
         buildHtml = { roomMemberList(members) },
     )
 }

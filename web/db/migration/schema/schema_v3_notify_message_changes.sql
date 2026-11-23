@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict iOs1hHbREMlq0WMXcnzSLggBudVUbJToqyenLShb03WESj8jJ0aOP7iqHEP39WL
+\restrict diAoGrZhd2SvdBdtHAYFjpTZpfLFbVjVCYKFX3huBvGr3hzM4hB4lrMgZnOh7Qe
 
 -- Dumped from database version 17.10 (Debian 17.10-1.pgdg13+1)
 -- Dumped by pg_dump version 18.3
@@ -194,5 +194,5 @@ ALTER TABLE ONLY public.sessions
 -- PostgreSQL database dump complete
 --
 
-\unrestrict iOs1hHbREMlq0WMXcnzSLggBudVUbJToqyenLShb03WESj8jJ0aOP7iqHEP39WL
+\unrestrict diAoGrZhd2SvdBdtHAYFjpTZpfLFbVjVCYKFX3huBvGr3hzM4hB4lrMgZnOh7Qe
 
