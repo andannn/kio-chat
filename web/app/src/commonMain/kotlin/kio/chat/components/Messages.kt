@@ -1,6 +1,7 @@
 package kio.chat.components
 
 import kio.chat.domain.Message
+import kio.chat.domain.RoomRole
 import kio.chat.domain.UserChatEvent
 import kio.chat.util.*
 import kotlinx.html.*
@@ -8,8 +9,12 @@ import kotlinx.html.*
 private fun ARTICLE.messageItem(message: Message, isMine: Boolean, roomId: Long) {
     id = "message-${message.id}"
     attributes["data-mine"] = isMine.toString()
-    if (!isMine) {
+    div(classes = "message-header") {
         span(classes = "message-sender") { +message.nickname }
+        when (message.member.role) {
+            RoomRole.Owner -> span(classes = "message-role message-role-owner") { +"群主" }
+            RoomRole.Member -> {}
+        }
     }
     div(classes = "message-bubble") {
         p(classes = "message-text") {

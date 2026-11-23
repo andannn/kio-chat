@@ -1,12 +1,29 @@
 package me.andannn.kio.chat
 
 import android.Manifest
+import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,6 +33,7 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -30,6 +48,8 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.ui.unit.sp
 import me.andannn.kio.chat.ui.theme.KioChatTheme
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -58,6 +78,8 @@ import me.andannn.kio.chat.util.Presenter
 import me.andannn.kio.chat.util.RetainedPresenter
 import me.andannn.kio.chat.util.retainPresenter
 import me.andannn.kio.chat.util.stateInRetainedModel
+import me.andannn.kio.chat.widget.UserAvatar
+import me.andannn.kio.chat.widget.VoiceCallBubble
 import me.andannn.kio.chat.widget.MessageItem
 
 private const val TAG = "ScreenRoom"
@@ -306,8 +328,9 @@ private fun RoomUi(
     val state = presenter.present()
     val context = LocalContext.current
     val currentEventSink by rememberUpdatedState(state.eventSink)
-    val microphonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        currentEventSink(if (granted) RoomUiEvent.OnJoinVoice else RoomUiEvent.OnMicrophoneDenied)
+    val voicePermissions = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { results ->
+        val audioGranted = results[Manifest.permission.RECORD_AUDIO] == true
+        currentEventSink(if (audioGranted) RoomUiEvent.OnJoinVoice else RoomUiEvent.OnMicrophoneDenied)
     }
     val listState = rememberLazyListState()
     val currentMessages by rememberUpdatedState(state.messages)
@@ -346,10 +369,15 @@ private fun RoomUi(
         voiceCall = state.voiceCall,
         isVoiceBusy = state.isVoiceBusy,
         onJoinVoice = {
-            if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            val missingPermissions = context.getMissingVoiceCallPermissions()
+            if (missingPermissions.isEmpty()) {
                 state.eventSink(RoomUiEvent.OnJoinVoice)
             } else {
-                microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+                if (Manifest.permission.RECORD_AUDIO !in missingPermissions) {
+                    // 已有麦克风权限（仅缺少可选的蓝牙权限），不阻塞加入语音，同时发起蓝牙权限申请
+                    state.eventSink(RoomUiEvent.OnJoinVoice)
+                }
+                voicePermissions.launch(missingPermissions.toTypedArray())
             }
         },
         onLeaveVoice = { state.eventSink(RoomUiEvent.OnLeaveVoice) },
@@ -419,15 +447,21 @@ private fun RoomContent(
                         .windowInsetsPadding(BottomAppBarDefaults.windowInsets)
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
-                    VoiceCallPanel(
+                    // 语音通话常驻气泡面板（统一承载通话状态、成员列表、静音、开启与挂断功能）
+                    VoiceCallBubble(
                         roomId = room.id,
-                        currentUserId = currentUserId,
                         participants = voiceParticipants,
                         call = voiceCall,
                         isBusy = isVoiceBusy,
                         onToggleMuted = onToggleMuted,
+                        onJoinVoice = onJoinVoice,
+                        onLeaveVoice = onLeaveVoice,
+                        modifier = Modifier.padding(bottom = 8.dp),
                     )
-                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.padding(top = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         OutlinedTextField(
                             value = message,
                             onValueChange = onMessageChanged,
@@ -445,39 +479,6 @@ private fun RoomContent(
                                 }
                             },
                         )
-                        Spacer(Modifier.width(8.dp))
-                        val joined = voiceCall.roomId == room.id
-                        FilledIconToggleButton(
-                            checked = joined,
-                            onCheckedChange = { checked -> if (checked) onJoinVoice() else onLeaveVoice() },
-                            enabled = !isVoiceBusy,
-                            modifier = Modifier.size(48.dp),
-                            colors = IconButtonDefaults.filledIconToggleButtonColors(
-                                checkedContainerColor = MaterialTheme.colorScheme.error,
-                                checkedContentColor = MaterialTheme.colorScheme.onError,
-                            ),
-                        ) {
-                            Icon(
-                                imageVector = if (joined) Icons.Filled.CallEnd else Icons.Filled.Call,
-                                contentDescription = when {
-                                    joined -> "挂断"
-                                    voiceCall.roomId != null -> "切换到此房间通话"
-                                    else -> "加入语音"
-                                },
-                            )
-                        }
-                    }
-                    if (voiceCall.roomId != null && voiceCall.roomId != room.id) {
-                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            Text(
-                                "正在房间 ${voiceCall.roomId} 通话",
-                                modifier = Modifier.weight(1f),
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            IconButton(onClick = onLeaveVoice, enabled = !isVoiceBusy) {
-                                Icon(Icons.Filled.CallEnd, "退出当前通话", tint = MaterialTheme.colorScheme.error)
-                            }
-                        }
                     }
                 }
             }
@@ -522,55 +523,6 @@ private fun RoomContent(
     }
 }
 
-@Composable
-private fun VoiceCallPanel(
-    roomId: Long,
-    currentUserId: Long?,
-    participants: List<RoomMember>,
-    call: VoiceCallState,
-    isBusy: Boolean,
-    onToggleMuted: () -> Unit,
-) {
-    val joined = call.roomId == roomId
-    val orderedParticipants = participants.sortedBy { it.userId != currentUserId }
-    val names = orderedParticipants.map { if (it.userId == currentUserId) "你" else it.nickname }
-    // Joining can finish before the participant event arrives.
-    val displayedNames = if (joined && participants.none { it.userId == currentUserId }) {
-        listOf("你") + names
-    } else names
-    if (displayedNames.isEmpty()) return
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 8.dp)
-            .heightIn(min = 48.dp),
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-    ) {
-        Text(
-            text = displayedNames.joinToString("、"),
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier
-                .weight(1f)
-                .horizontalScroll(rememberScrollState()),
-        )
-        if (joined) {
-            IconToggleButton(
-                modifier = Modifier.size(48.dp),
-                checked = call.muted,
-                onCheckedChange = { onToggleMuted() },
-                enabled = !isBusy,
-            ) {
-                Icon(
-                    imageVector = if (call.muted) Icons.Filled.MicOff else Icons.Filled.Mic,
-                    contentDescription = if (call.muted) "取消静音" else "静音",
-                )
-            }
-        }
-
-    }
-}
-
 @Preview
 @Composable
 private fun RoomPreview() {
@@ -583,6 +535,18 @@ private fun RoomPreview() {
         Message(4, bob, "也可以发送多行文字。\n这是第二行。", bob.nickname),
     )
     KioChatTheme(dynamicColor = false) {
-        RoomContent(room = Room(1, "Title"), messages = messages, message = "正在输入消息…", currentUserId = alice.userId)
+        RoomContent(room = Room(1, "Title"), messages = messages, message = "正在输入消息…", currentUserId = alice.userId,
+            voiceParticipants = listOf(RoomMember(1, "小红")))
+    }
+}
+
+private fun Context.getMissingVoiceCallPermissions(): List<String> = buildList {
+    if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        add(Manifest.permission.RECORD_AUDIO)
+    }
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+        checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+    ) {
+        add(Manifest.permission.BLUETOOTH_CONNECT)
     }
 }

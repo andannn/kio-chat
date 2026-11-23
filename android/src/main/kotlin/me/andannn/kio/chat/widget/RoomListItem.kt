@@ -86,8 +86,15 @@ fun RoomListItemContent(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
     ) {
         ListItem(
-            modifier = Modifier.padding(vertical = 8.dp),
+            modifier = Modifier.padding(vertical = 4.dp),
             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+            leadingContent = {
+                UserAvatar(
+                    name = room.name,
+                    key = room.id,
+                    size = 44.dp,
+                )
+            },
             headlineContent = {
                 Text(
                     room.name,

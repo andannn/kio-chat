@@ -3,19 +3,32 @@ package me.andannn.kio.chat
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.media.AudioDeviceCallback
+import android.media.AudioDeviceInfo
 import android.media.AudioManager
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import kio.chat.domain.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.webrtc.*
 import org.webrtc.audio.JavaAudioDeviceModule
 
-data class VoiceCallState(val roomId: Long? = null, val muted: Boolean = true)
+data class VoiceCallState(
+    val roomId: Long? = null,
+    val muted: Boolean = true,
+    val audioDeviceName: String? = null,
+)
 
 interface VoiceCallRepository {
     fun CoroutineScope.startObservingEvents(): Job
@@ -45,7 +58,54 @@ class VoiceCallRepositoryImpl(
     private var audioSource: AudioSource? = null
     private var audioTrack: AudioTrack? = null
 
+    private fun observeAudioDeviceName(): Flow<String> = callbackFlow {
+        trySend(getCurrentAudioDeviceName())
+        val callback = object : AudioDeviceCallback() {
+            override fun onAudioDevicesAdded(addedDevices: Array<out AudioDeviceInfo>?) {
+                trySend(getCurrentAudioDeviceName())
+            }
+
+            override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>?) {
+                trySend(getCurrentAudioDeviceName())
+            }
+        }
+        audioManager.registerAudioDeviceCallback(callback, Handler(Looper.getMainLooper()))
+        awaitClose {
+            audioManager.unregisterAudioDeviceCallback(callback)
+        }
+    }.distinctUntilChanged()
+
+    private fun getCurrentAudioDeviceName(): String {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            audioManager.communicationDevice?.let { return formatAudioDeviceName(it) }
+        }
+        val inputs = audioManager.getDevices(AudioManager.GET_DEVICES_INPUTS)
+        val preferredInput = inputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
+            ?: inputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET || it.type == AudioDeviceInfo.TYPE_USB_HEADSET }
+            ?: inputs.firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_MIC }
+            ?: inputs.firstOrNull()
+        return preferredInput?.let { formatAudioDeviceName(it) } ?: "麦克风"
+    }
+
+    private fun formatAudioDeviceName(device: AudioDeviceInfo): String {
+        val productName = device.productName?.toString()?.trim().orEmpty()
+        if (productName.isNotEmpty()) return productName
+        return when (device.type) {
+            AudioDeviceInfo.TYPE_BUILTIN_MIC -> "内置麦克风"
+            AudioDeviceInfo.TYPE_BLUETOOTH_SCO, AudioDeviceInfo.TYPE_BLE_HEADSET -> "蓝牙耳机"
+            AudioDeviceInfo.TYPE_WIRED_HEADSET, AudioDeviceInfo.TYPE_USB_HEADSET -> "有线耳机"
+            AudioDeviceInfo.TYPE_BUILTIN_EARPIECE -> "听筒"
+            AudioDeviceInfo.TYPE_BUILTIN_SPEAKER -> "扬声器"
+            else -> "音频设备"
+        }
+    }
+
     override fun CoroutineScope.startObservingEvents(): Job = launch(start = CoroutineStart.UNDISPATCHED) {
+        launch {
+            observeAudioDeviceName().collect { name ->
+                state.value = state.value.copy(audioDeviceName = name)
+            }
+        }
         try {
             eventSource.events.collect { event ->
                 if (event !is VoiceSignalingEvent && event !is VoiceParticipantsEvent.Removed) return@collect
@@ -92,7 +152,11 @@ class VoiceCallRepositoryImpl(
                 closeLocal()
                 return@withLock error
             }
-            state.value = VoiceCallState(roomId)
+            state.value = state.value.copy(
+                roomId = roomId,
+                muted = true,
+                audioDeviceName = getCurrentAudioDeviceName(),
+            )
             null
         } catch (cancelled: CancellationException) {
             withContext(NonCancellable) { leaveInternal() }

@@ -92,10 +92,8 @@ interface ChatService {
 
 data class ApiResult<T>(val value: T?, val error: ApiError?)
 
-//private const val BASE_URL = "http://127.0.0.1"
-//private const val BASE_WS_URL = "ws://127.0.0.1"
-private const val BASE_URL = "https://133.117.75.202"
-private const val BASE_WS_URL = "wss://133.117.75.202"
+private const val BASE_URL = BuildConfig.BASE_URL
+private const val BASE_WS_URL = BuildConfig.BASE_WS_URL
 
 class ChatServiceImpl : ChatService {
     private val httpClient =
