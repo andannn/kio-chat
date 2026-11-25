@@ -4,6 +4,7 @@ import io.ktor.http.*
 import kio.async.AsyncRawSource
 import kio.async.buffered
 import kio.async.poller
+import kio.async.readByteArray
 import kio.async.readString
 import kio.chat.components.*
 import kio.chat.domain.MessageExtra
@@ -71,27 +72,32 @@ private suspend fun CallContext.handleNewTestMessage() {
 context(repo: Repository)
 private suspend fun CallContext.handleNewImageMessage() {
     val reader = receiveMultipart()
-    var imageFileSource: AsyncRawSource? = null
+    var imageBytes: ByteArray? = null
     var width: Int? = null
     var height: Int? = null
 
-    while (true) {
-        val part = reader.nextPart() ?: break
-        when (part.contentDisposition?.name) {
-            "image" -> {
-                imageFileSource = part.body
-                break
-            }
-            "width" -> {
-                width = part.body.buffered().readString().toIntOrNull()
-            }
-            "height" -> {
-                height = part.body.buffered().readString().toIntOrNull()
+        while (true) {
+            val part = reader.nextPart() ?: break
+            when (part.contentDisposition?.name) {
+                "image" -> {
+                    imageBytes = part.body.buffered().readByteArray()
+                }
+
+                "width" -> {
+                    width = part.body.buffered().readString().toIntOrNull()
+                }
+
+                "height" -> {
+                    height = part.body.buffered().readString().toIntOrNull()
+                }
+
+                else -> {
+                    part.body.buffered().readByteArray()
+                }
             }
         }
-    }
 
-    if (imageFileSource == null) {
+    if (imageBytes == null) {
         respond(HttpStatusCode.BadRequest, "缺少图片文件。")
         return
     }
@@ -102,7 +108,7 @@ private suspend fun CallContext.handleNewImageMessage() {
     val io = currentCoroutineContext().poller.io
     val result = io.compressImageSourceToWebp(
         doSendInput = { sink ->
-            sink.transferFrom(imageFileSource)
+            sink.write(imageBytes)
         },
         doTransferData = { source ->
             val finalSink = fileSink(filePath).buffered()

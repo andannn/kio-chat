@@ -82,13 +82,13 @@ android {
     productFlavors {
         create("local") {
             dimension = "environment"
-            buildConfigField("String", "BASE_URL", "\"http://127.0.0.1\"")
-            buildConfigField("String", "BASE_WS_URL", "\"ws://127.0.0.1\"")
+            buildConfigField("String", "BASE_URL", "\"http://127.0.0.1:7879\"")
+            buildConfigField("String", "BASE_WS_URL", "\"ws://127.0.0.1:7879\"")
         }
         create("prod") {
             dimension = "environment"
-            buildConfigField("String", "BASE_URL", "\"https://133.117.75.202\"")
-            buildConfigField("String", "BASE_WS_URL", "\"wss://133.117.75.202\"")
+            buildConfigField("String", "BASE_URL", "\"https://133.117.75.202:7879\"")
+            buildConfigField("String", "BASE_WS_URL", "\"wss://133.117.75.202:7879\"")
         }
     }
 }
@@ -122,6 +122,9 @@ dependencies {
     implementation(libs.ktor.serialization.kotlinx.json)
 
     implementation(libs.androidx.core.splashscreen)
+    implementation(libs.timber)
+    implementation(libs.coil.compose)
+    implementation(libs.coil.network.ktor3)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.androidx.navigation3.ui)
     debugImplementation(libs.androidx.ui.tooling)

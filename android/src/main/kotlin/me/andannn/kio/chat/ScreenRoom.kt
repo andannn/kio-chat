@@ -1,5 +1,9 @@
 package me.andannn.kio.chat
 
+import android.graphics.BitmapFactory
+import android.net.Uri
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.material.icons.filled.Image
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
@@ -116,6 +120,7 @@ sealed interface RoomUiEvent {
     data object OnLeaveVoice : RoomUiEvent
     data object OnToggleMuted : RoomUiEvent
     data object OnMicrophoneDenied : RoomUiEvent
+    data class OnSendImage(val bytes: ByteArray, val width: Int, val height: Int) : RoomUiEvent
 }
 
 private data class RoomLayoutState(
@@ -256,6 +261,16 @@ private class RoomLayoutPresenter(
     }
 
     context(_: RootNavigator, _: SnackBarController)
+    private fun sendImage(bytes: ByteArray, width: Int, height: Int) {
+        retainedScope.launch {
+            val (_, error) = service.sendImageMessage(roomId, bytes, width, height)
+            if (error != null) {
+                handleError(error)
+            }
+        }
+    }
+
+    context(_: RootNavigator, _: SnackBarController)
     private fun updateMessage(messageId: Long, content: String) {
         val text = content.trim()
         if (text.isEmpty()) return
@@ -299,6 +314,7 @@ private class RoomLayoutPresenter(
                     RoomUiEvent.OnSettingClick -> navigator.navigateTo(MainScreen.RoomSetting(roomState))
                     RoomUiEvent.OnBackClick -> navigator.popBackStack()
                     RoomUiEvent.OnSendClick -> sendMessage()
+                    is RoomUiEvent.OnSendImage -> sendImage(event.bytes, event.width, event.height)
                     RoomUiEvent.OnJoinVoice -> changeVoice { voiceRepository.join(roomId) }
                     RoomUiEvent.OnLeaveVoice -> changeVoice { voiceRepository.leave() }
                     RoomUiEvent.OnToggleMuted -> changeVoice { voiceRepository.setMuted(!voiceRepository.callState.value.muted) }
@@ -382,6 +398,7 @@ private fun RoomUi(
         },
         onLeaveVoice = { state.eventSink(RoomUiEvent.OnLeaveVoice) },
         onToggleMuted = { state.eventSink(RoomUiEvent.OnToggleMuted) },
+        onSendImage = { bytes, w, h -> state.eventSink(RoomUiEvent.OnSendImage(bytes, w, h)) },
     )
 }
 
@@ -400,6 +417,7 @@ private fun RoomContent(
     snackbarHostState: SnackbarHostState = remember { SnackbarHostState() },
     onMessageChanged: (String) -> Unit = {},
     onSend: () -> Unit = {},
+    onSendImage: (ByteArray, Int, Int) -> Unit = { _, _, _ -> },
     onBack: () -> Unit = {},
     onSettingClick: () -> Unit = {},
     onUpdateMessage: (Long, String) -> Unit = { _, _ -> },
@@ -412,7 +430,7 @@ private fun RoomContent(
     onToggleMuted: () -> Unit = {},
 ) {
     Scaffold(
-        modifier = modifier.imePadding(),
+        modifier = modifier,
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
         topBar = {
             TopAppBar(
@@ -444,7 +462,7 @@ private fun RoomContent(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .windowInsetsPadding(BottomAppBarDefaults.windowInsets)
+                        .windowInsetsPadding(BottomAppBarDefaults.windowInsets.union(WindowInsets.ime))
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
                     // 语音通话常驻气泡面板（统一承载通话状态、成员列表、静音、开启与挂断功能）
@@ -462,6 +480,47 @@ private fun RoomContent(
                         modifier = Modifier.padding(top = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        val context = LocalContext.current
+                        val photoPickerLauncher = rememberLauncherForActivityResult(
+                            contract = ActivityResultContracts.PickVisualMedia()
+                        ) { uri: Uri? ->
+                            if (uri != null) {
+                                val cr = context.contentResolver
+                                val (w, h) = try {
+                                    cr.openInputStream(uri)?.use { stream ->
+                                        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                                        BitmapFactory.decodeStream(stream, null, options)
+                                        options.outWidth to options.outHeight
+                                    } ?: (0 to 0)
+                                } catch (_: Exception) {
+                                    0 to 0
+                                }
+                                val bytes = try {
+                                    cr.openInputStream(uri)?.use { it.readBytes() }
+                                } catch (_: Exception) {
+                                    null
+                                }
+                                if (bytes != null && bytes.isNotEmpty()) {
+                                    onSendImage(bytes, w, h)
+                                }
+                            }
+                        }
+
+                        IconButton(
+                            onClick = {
+                                photoPickerLauncher.launch(
+                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                )
+                            },
+                            modifier = Modifier.padding(end = 4.dp)
+                        ) {
+                            Icon(
+                                Icons.Default.Image,
+                                contentDescription = "发送图片",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+
                         OutlinedTextField(
                             value = message,
                             onValueChange = onMessageChanged,
@@ -500,7 +559,7 @@ private fun RoomContent(
                 items(messages, key = { it.id }) { message ->
                     val isMine = currentUserId != null && message.member.userId == currentUserId
                     MessageItem(
-                        modifier = Modifier.animateItem(),
+                        modifier = Modifier.animateItem(placementSpec = null),
                         message = message,
                         isMine = isMine,
                         onDelete = { onDeleteMessage(message.id) },

@@ -9,7 +9,6 @@ import android.media.AudioManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import kio.chat.domain.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.awaitClose
@@ -23,6 +22,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.webrtc.*
 import org.webrtc.audio.JavaAudioDeviceModule
+import timber.log.Timber
 
 data class VoiceCallState(
     val roomId: Long? = null,
@@ -125,7 +125,7 @@ class VoiceCallRepositoryImpl(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
-                    Log.e("VoiceCall", "处理语音事件失败", error)
+                    Timber.tag("VoiceCall").e(error, "处理语音事件失败")
                 }
             }
         } finally {
@@ -216,7 +216,7 @@ class VoiceCallRepositoryImpl(
                 scope.launch {
                     mutex.withLock {
                         if (current.peers[userId]?.connection === connection) {
-                            send(current, VoiceCallMessage.IceCandidate(userId, candidate))?.let { Log.w("VoiceCall", "$it") }
+                            send(current, VoiceCallMessage.IceCandidate(userId, candidate))?.let { Timber.tag("VoiceCall").w("%s", it) }
                         }
                     }
                 }

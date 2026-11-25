@@ -18,7 +18,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.withContext
 import kotlin.uuid.Uuid
 
-private val DATA_SOURCE = DataSourceType.MOCK
+private val DATA_SOURCE = DataSourceType.PRODUCTION
 
 suspend fun CoroutineScope.chatApp(serverSocket: ServerSocket) {
     val env = loadEnv()
@@ -90,6 +90,7 @@ private suspend fun CoroutineScope.setupServer(
         DataSourceType.MOCK -> {
             httpServer(
                 serverSocket = serverSocket,
+                loggingBackEnd = AsyncLoggingBackEnd(this, enableTrace = true),
             ) {
                 block(MockRepositoryImpl())
             }
@@ -100,7 +101,10 @@ private suspend fun CoroutineScope.setupServer(
             try {
                 val repo = Repository(pool)
                 val watchJob = with (repo) { startWatchingMessageEvent() }
-                httpServer(serverSocket = serverSocket) { block(repo) }
+                httpServer(
+                    serverSocket = serverSocket,
+                    loggingBackEnd = AsyncLoggingBackEnd(this, enableTrace = true),
+                ) { block(repo) }
                 watchJob.join()
             } finally {
                 withContext(kotlinx.coroutines.NonCancellable) { pool.close() }
