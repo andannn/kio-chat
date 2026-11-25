@@ -31,12 +31,41 @@ data class Session(
 )
 
 @Serializable
+enum class MessageType {
+    @SerialName("text")
+    Text,
+    @SerialName("image")
+    Image,
+    @SerialName("voice")
+    Voice,
+    @SerialName("video")
+    Video,
+    @SerialName("file")
+    File,
+}
+
+@Serializable
+sealed interface MessageExtra {
+    @Serializable
+    @SerialName("image")
+    data class Image(
+        @SerialName("url") val url: String,
+        @SerialName("width") val width: Int,
+        @SerialName("height") val height: Int,
+        @SerialName("size") val size: Long? = null,
+        @SerialName("thumbnailUrl") val thumbnailUrl: String? = null,
+    ) : MessageExtra
+}
+
+@Serializable
 @SerialName("message")
 data class Message(
     @SerialName("id") val id: Long,
     @SerialName("member") val member: RoomMember,
     @SerialName("text") val text: String,
     @SerialName("nickname") val nickname: String,
+    @SerialName("type") val type: MessageType = MessageType.Text,
+    @SerialName("extra") val extra: MessageExtra? = null,
 )
 
 @Serializable

@@ -7,6 +7,7 @@ import kio.postgres.conn.query
 import kio.postgres.types.PgInt8
 import kio.postgres.types.PgText
 import kio.postgres.types.PgTimestampTz
+import kotlinx.serialization.builtins.nullable
 import kio.postgres.types.PostgresInt8Serializer
 import kio.postgres.types.PostgresTextSerializer
 import kotlinx.coroutines.flow.Flow
@@ -94,16 +95,24 @@ suspend fun PgConnection.getUserByUsername(userName: String): ChatUserEntity? {
 
 
 // The database trigger publishes the notification when the transaction commits.
-suspend fun PgConnection.createMessage(userId: Long, text: String, roomId: Long) {
+suspend fun PgConnection.createMessage(
+    userId: Long,
+    text: String,
+    roomId: Long,
+    msgType: String = "text",
+    extra: String? = null,
+) {
     exec(
         """
-        INSERT INTO messages(user_id, text, room_id)
-        VALUES ($1, $2, $3)
+        INSERT INTO messages(user_id, text, room_id, msg_type, extra)
+        VALUES ($1, $2, $3, $4, $5::jsonb)
         """.trimIndent()
     ) {
         param(userId, PostgresInt8Serializer)
         param(text, PostgresTextSerializer)
         param(roomId, PostgresInt8Serializer)
+        param(msgType, PostgresTextSerializer)
+        param(extra, PostgresTextSerializer.nullable)
     }
 }
 
@@ -125,6 +134,8 @@ data class ChatMessageWithUserEntity(
     val passwordHash: PgText,
     @SerialName("nickname") val nickname: PgText,
     @SerialName("role") val role: PgText? = null,
+    @SerialName("msg_type") val msgType: PgText = "text",
+    @SerialName("extra") val extra: PgText? = null,
 )
 
 suspend fun PgConnection.getMessageList(beforeId: Long?, limit: Int, roomId: Long): List<ChatMessageWithUserEntity> {
@@ -133,7 +144,8 @@ suspend fun PgConnection.getMessageList(beforeId: Long?, limit: Int, roomId: Lon
 
     return query<ChatMessageWithUserEntity>(
         """
-        SELECT m.id, m.room_id, m.user_id, m.text, m.create_at, u.username, u.password_hash, u.nickname, rm.role
+        SELECT m.id, m.room_id, m.user_id, m.text, m.create_at, u.username, u.password_hash, u.nickname, rm.role,
+               m.msg_type, m.extra::text AS extra
         FROM messages m
         JOIN users u ON u.id = m.user_id
         LEFT JOIN room_members rm ON rm.room_id = m.room_id AND rm.user_id = m.user_id
@@ -149,7 +161,8 @@ suspend fun PgConnection.getMessageList(beforeId: Long?, limit: Int, roomId: Lon
 suspend fun PgConnection.getMessageById(messageId: Long): ChatMessageWithUserEntity? =
     query<ChatMessageWithUserEntity>(
         """
-        SELECT m.id, m.room_id, m.user_id, m.text, m.create_at, u.username, u.password_hash, u.nickname, rm.role
+        SELECT m.id, m.room_id, m.user_id, m.text, m.create_at, u.username, u.password_hash, u.nickname, rm.role,
+               m.msg_type, m.extra::text AS extra
         FROM messages m
         JOIN users u ON u.id = m.user_id
         LEFT JOIN room_members rm ON rm.room_id = m.room_id AND rm.user_id = m.user_id

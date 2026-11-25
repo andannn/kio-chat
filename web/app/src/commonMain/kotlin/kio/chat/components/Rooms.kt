@@ -254,12 +254,28 @@ fun TagConsumer<*>.chatRoomContent(room: Room, isOwner: Boolean = false) {
                 hxSwap = "none"
                 hxOnAfterRequest = "if (event.detail.successful) { this.reset(); const t = this.querySelector('textarea'); if (t) { t.style.height = 'auto'; } }"
                 div(classes = "composer-input-wrapper") {
+                    input(type = InputType.file, classes = "image-file-input") {
+                        id = "image-upload-input"
+                        attributes["accept"] = "image/*"
+                        attributes["style"] = "display: none;"
+                        attributes["data-upload-url"] = "$messagePath/image"
+                        attributes["onchange"] = "window.handleChatImageUpload && window.handleChatImageUpload(this)"
+                    }
+                    button(type = ButtonType.button, classes = "composer-image-button") {
+                        id = "image-button"
+                        attributes["aria-label"] = "发送图片"
+                        attributes["title"] = "发送图片"
+                        attributes["onclick"] = "document.getElementById('image-upload-input')?.click()"
+                        unsafe {
+                            raw("""<svg class="google-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M5 21q-.825 0-1.412-.587T3 19V5q0-.825.588-1.412T5 3h14q.825 0 1.413.588T21 5v14q0 .825-.587 1.413T19 21zm0-2h14V5H5zm1-2h12l-3.75-5-3 4L9 13.5zm-1 2V5z"/></svg>""")
+                        }
+                    }
                     textArea {
                         id = "content"
                         name = "content"
                         required = true
                         rows = "1"
-                        placeholder = "输入消息…（Enter 发送，Shift+Enter 换行）"
+                        placeholder = "输入消息…（Enter 发送，Shift+Enter 换行，支持粘贴图片）"
                         attributes["aria-label"] = "消息"
                         attributes["hx-on:keydown"] = "if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) { event.preventDefault(); if (!event.repeat && this.value.trim().length > 0) this.form?.requestSubmit(); }"
                         attributes["oninput"] = "this.style.height = 'auto'; this.style.height = Math.min(this.scrollHeight, 180) + 'px';"

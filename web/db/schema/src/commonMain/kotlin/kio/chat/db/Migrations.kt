@@ -16,6 +16,7 @@ val migrations
         migration10,
         migration11,
         migration12,
+        migration13,
     )
 
 // Test cleanup, matching kio-note. Use only with a dedicated test database.
@@ -323,5 +324,15 @@ private val migration12 = Migration(
 ALTER TABLE users ADD COLUMN nickname TEXT;
 UPDATE users SET nickname = username;
 ALTER TABLE users ALTER COLUMN nickname SET NOT NULL;
+        """.trimIndent()
+)
+
+private val migration13 = Migration(
+    version = 13,
+    name = "add message type and extra",
+    sql = """
+ALTER TABLE messages
+    ADD COLUMN msg_type TEXT NOT NULL DEFAULT 'text',
+    ADD COLUMN extra JSONB;
         """.trimIndent()
 )

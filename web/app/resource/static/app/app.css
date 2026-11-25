@@ -702,6 +702,30 @@ body {
     line-height: 1.5;
 }
 
+/* 消息图片样式 */
+.message-image-link {
+    display: block;
+    text-decoration: none;
+    line-height: 0;
+}
+
+.message-image {
+    max-width: 280px;
+    max-height: 360px;
+    width: auto;
+    height: auto;
+    border-radius: 12px;
+    object-fit: cover;
+    display: block;
+    cursor: pointer;
+    transition: opacity 150ms ease, transform 150ms ease;
+}
+
+.message-image:hover {
+    opacity: 0.95;
+    transform: scale(1.01);
+}
+
 /* 消息悬浮菜单 */
 .message-menu {
     position: absolute;
@@ -878,6 +902,33 @@ body {
 
 .chat-composer textarea::placeholder {
     color: var(--text-muted);
+}
+
+.composer-image-button {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    border: 0;
+    border-radius: var(--radius-full);
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 150ms ease, color 150ms ease;
+}
+
+.composer-image-button .google-icon {
+    width: 22px;
+    height: 22px;
+    fill: currentColor;
+    display: block;
+}
+
+.composer-image-button:hover {
+    background: var(--bg-surface-elevated);
+    color: var(--primary-color);
 }
 
 .composer-send-button {

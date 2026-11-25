@@ -18,7 +18,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.withContext
 import kotlin.uuid.Uuid
 
-private val DATA_SOURCE = DataSourceType.PRODUCTION
+private val DATA_SOURCE = DataSourceType.MOCK
 
 suspend fun CoroutineScope.chatApp(serverSocket: ServerSocket) {
     val env = loadEnv()
@@ -43,6 +43,14 @@ suspend fun CoroutineScope.chatApp(serverSocket: ServerSocket) {
                     get("/") { call -> call.chatMainPage() }
                     roomRoute()
                     websocket("/events") { c -> c.handleObserveUserEvent() }
+
+                    staticResource(
+                        remotePath = "/attachments",
+                        basePackage = "data/uploads",
+                        configHeaders = {
+                            append(HttpHeaders.CacheControl, "public, max-age=31536000, immutable")
+                        }
+                    )
                 }
 
                 staticResource(

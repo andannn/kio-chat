@@ -161,10 +161,10 @@ class MockRepositoryImpl : Repository, WsSessionRepository by InMemoryWsSessionR
         messageEventFlow.emit(MessageEvent.RoomJoinRequestMessageEvent(roomId, event))
     }
 
-    override suspend fun recordMessage(userId: Long, msg: String, roomId: Long) {
+    override suspend fun recordMessage(userId: Long, msg: String, roomId: Long, type: MessageType, extra: MessageExtra?) {
         requireNotNull(getRoomById(roomId)) { "Unknown room" }
         val user = requireNotNull(users.values.find { it.id == userId }) { "Unknown user" }
-        val message = Message(nextMessageId++, RoomMember(user.id, user.nickname), msg, user.nickname)
+        val message = Message(nextMessageId++, RoomMember(user.id, user.nickname), msg, user.nickname, type, extra)
         messageRooms[message.id] = roomId
         messages.add(message)
         messageEventFlow.emit(MessageEvent.ChatMessageEvent(UserChatEvent.Added(roomId, message)))

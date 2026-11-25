@@ -1,6 +1,7 @@
 package kio.chat.components
 
 import kio.chat.domain.Message
+import kio.chat.domain.MessageExtra
 import kio.chat.domain.RoomRole
 import kio.chat.domain.UserChatEvent
 import kio.chat.util.*
@@ -17,8 +18,22 @@ private fun ARTICLE.messageItem(message: Message, isMine: Boolean, roomId: Long)
         }
     }
     div(classes = "message-bubble") {
-        p(classes = "message-text") {
-            +message.text
+        when (val extra = message.extra) {
+            is MessageExtra.Image -> {
+                a(href = extra.url, target = "_blank", classes = "message-image-link") {
+                    img(classes = "message-image", src = extra.url, alt = "图片") {
+                        attributes["loading"] = "lazy"
+                        if (extra.width > 0 && extra.height > 0) {
+                            attributes["style"] = "aspect-ratio: ${extra.width} / ${extra.height};"
+                        }
+                    }
+                }
+            }
+            null -> {
+                p(classes = "message-text") {
+                    +message.text
+                }
+            }
         }
         if (isMine) {
             details(classes = "menu message-menu") {
@@ -27,11 +42,13 @@ private fun ARTICLE.messageItem(message: Message, isMine: Boolean, roomId: Long)
                     +"⋯"
                 }
                 div(classes = "menu-popup") {
-                    button(type = ButtonType.button, classes = "menu-item") {
-                        hxGet = "/rooms/$roomId/messages/${message.id}/editor"
-                        hxTarget = "closest article"
-                        hxSwap = "outerHTML"
-                        +"编辑"
+                    if (message.extra == null) {
+                        button(type = ButtonType.button, classes = "menu-item") {
+                            hxGet = "/rooms/$roomId/messages/${message.id}/editor"
+                            hxTarget = "closest article"
+                            hxSwap = "outerHTML"
+                            +"编辑"
+                        }
                     }
                     button(type = ButtonType.button, classes = "menu-item menu-item-danger") {
                         hxDelete = "/rooms/$roomId/messages/${message.id}"
