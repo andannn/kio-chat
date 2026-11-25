@@ -1,6 +1,5 @@
 package me.andannn.kio.chat
 
-import android.util.Log
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
@@ -23,6 +22,7 @@ import androidx.navigation3.scene.SinglePaneSceneStrategy
 import androidx.navigation3.ui.NavDisplay
 import me.andannn.kio.chat.util.rememberRetainedValueStoreNavEntryDecorator
 import me.andannn.kio.chat.util.rememberSnackBarControllerNavEntryDecorator
+import timber.log.Timber
 
 private const val TAG = "App"
 
@@ -31,7 +31,7 @@ fun ChatApp(
     initialScreen: Screen,
     modifier: Modifier = Modifier,
 ) {
-    Log.d(TAG, "ChatApp: initialScreen = $initialScreen")
+    Timber.tag(TAG).d("ChatApp: initialScreen = %s", initialScreen)
     val layoutDirection = LocalLayoutDirection.current
 
     val backStack = rememberNavBackStack(initialScreen)

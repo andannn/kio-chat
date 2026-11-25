@@ -41,6 +41,10 @@ data class ChatMessageEntity(
     val createAt: PgTimestampTz,
     @SerialName("room_id")
     val roomId: PgInt8,
+    @SerialName("msg_type")
+    val msgType: PgText = "text",
+    @SerialName("extra")
+    val extra: PgText? = null,
 )
 
 @Serializable

@@ -1,17 +1,32 @@
 package kio.chat
 
 import io.ktor.http.*
+import kio.async.AsyncRawSource
+import kio.async.buffered
+import kio.async.poller
+import kio.async.readByteArray
+import kio.async.readString
 import kio.chat.components.*
+import kio.chat.domain.MessageExtra
 import kio.chat.domain.MessagePage
-import kio.chat.util.respondByContentType
+import kio.chat.domain.MessageType
 import kio.chat.domain.Repository
+import kio.chat.util.Config
+import kio.chat.util.compressImageSourceToWebp
+import kio.chat.util.fileSink
 import kio.chat.util.json
+import kio.chat.util.respondByContentType
 import kio.http.*
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.io.files.Path
+import kotlinx.io.files.SystemFileSystem
+import kotlin.uuid.Uuid
 
 context(repo: Repository)
 fun Route.messagesRoute() {
     route("messages") {
-        post { call -> call.handleNewMessage() }
+        post { call -> call.handleNewTestMessage() }
+        post("image") { call -> call.handleNewImageMessage() }
         get { call -> call.handleGetMessageHistory() }
 
         route("/{id}") {
@@ -42,7 +57,7 @@ private suspend fun CallContext.handleGetMessageHistory() {
 }
 
 context(repo: Repository)
-private suspend fun CallContext.handleNewMessage() {
+private suspend fun CallContext.handleNewTestMessage() {
     val content = receiveFormParameters()["content"]?.trim().orEmpty()
     if (content.isEmpty() || content.length > 2000) {
         respond(HttpStatusCode.BadRequest, "消息内容须为 1–2000 个字符。")
@@ -50,6 +65,84 @@ private suspend fun CallContext.handleNewMessage() {
     }
     val roomId = requireRoomId()
     repo.recordMessage(requireSession().userId, content, roomId)
+
+    respond(HttpStatusCode.OK)
+}
+
+context(repo: Repository)
+private suspend fun CallContext.handleNewImageMessage() {
+    val reader = receiveMultipart()
+    var imageBytes: ByteArray? = null
+    var width: Int? = null
+    var height: Int? = null
+
+        while (true) {
+            val part = reader.nextPart() ?: break
+            when (part.contentDisposition?.name) {
+                "image" -> {
+                    imageBytes = part.body.buffered().readByteArray()
+                }
+
+                "width" -> {
+                    width = part.body.buffered().readString().toIntOrNull()
+                }
+
+                "height" -> {
+                    height = part.body.buffered().readString().toIntOrNull()
+                }
+
+                else -> {
+                    part.body.buffered().readByteArray()
+                }
+            }
+        }
+
+    if (imageBytes == null) {
+        respond(HttpStatusCode.BadRequest, "缺少图片文件。")
+        return
+    }
+
+    val fileName = Uuid.random().toString() + ".webp"
+    val filePath = Path(Config.UPLOAD_DIR, "image", fileName).toString()
+
+    val io = currentCoroutineContext().poller.io
+    val result = io.compressImageSourceToWebp(
+        doSendInput = { sink ->
+            sink.write(imageBytes)
+        },
+        doTransferData = { source ->
+            val finalSink = fileSink(filePath).buffered()
+            try {
+                source.transferTo(finalSink)
+                finalSink.flush()
+            } finally {
+                finalSink.close()
+            }
+        }
+    )
+
+    if (result.isFailure) {
+        currentLogger().error("failed to save file", result.exceptionOrNull())
+        respond(HttpStatusCode.InternalServerError, "图片处理失败。")
+        return
+    }
+
+    val url = "/attachments/image/$fileName"
+    val roomId = requireRoomId()
+    val userId = requireSession().userId
+    val extra = MessageExtra.Image(
+        url = url,
+        width = width ?: 0,
+        height = height ?: 0,
+    )
+
+    repo.recordMessage(
+        userId = userId,
+        msg = "[图片]",
+        roomId = roomId,
+        type = MessageType.Image,
+        extra = extra,
+    )
 
     respond(HttpStatusCode.OK)
 }

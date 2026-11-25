@@ -33,7 +33,7 @@ interface ChatDBRepository {
     suspend fun updateRoomName(roomId: Long, userId: Long, name: String): Boolean
     suspend fun deleteRoom(roomId: Long, userId: Long): Boolean
     fun getMessageEventSharedFlow(): SharedFlow<MessageEvent>
-    suspend fun recordMessage(userId: Long, msg: String, roomId: Long)
+    suspend fun recordMessage(userId: Long, msg: String, roomId: Long, type: MessageType = MessageType.Text, extra: MessageExtra? = null)
     suspend fun getOwnMessage(userId: Long, messageId: Long, roomId: Long): Message?
     suspend fun updateMessage(userId: Long, messageId: Long, text: String, roomId: Long): Boolean
     suspend fun deleteMessage(userId: Long, messageId: Long, roomId: Long): Boolean
@@ -196,8 +196,22 @@ class ChatDBRepositoryImpl(
     override suspend fun updateRoomName(roomId: Long, userId: Long, name: String): Boolean =
         pgPool.useConnection { it.updateRoomName(roomId, userId, name) }
 
-    override suspend fun recordMessage(userId: Long, msg: String, roomId: Long) {
-        pgPool.useConnection { it.createMessage(userId, msg, roomId) }
+    override suspend fun recordMessage(
+        userId: Long,
+        msg: String,
+        roomId: Long,
+        type: MessageType,
+        extra: MessageExtra?,
+    ) {
+        val typeStr = when (type) {
+            MessageType.Text -> "text"
+            MessageType.Image -> "image"
+            MessageType.Voice -> "voice"
+            MessageType.Video -> "video"
+            MessageType.File -> "file"
+        }
+        val extraJson = extra?.let { notificationJson.encodeToString(it) }
+        pgPool.useConnection { it.createMessage(userId, msg, roomId, typeStr, extraJson) }
     }
 
     override suspend fun getOwnMessage(userId: Long, messageId: Long, roomId: Long): Message? =
@@ -264,6 +278,20 @@ private fun ChatMessageWithUserEntity.toMessage() = Message(
     ),
     text = text,
     nickname = nickname,
+    type = when (msgType) {
+        "image" -> MessageType.Image
+        "voice" -> MessageType.Voice
+        "video" -> MessageType.Video
+        "file" -> MessageType.File
+        else -> MessageType.Text
+    },
+    extra = extra?.let {
+        try {
+            notificationJson.decodeFromString<MessageExtra>(it)
+        } catch (_: Exception) {
+            null
+        }
+    },
 )
 
 private fun ChatRoomEntity.toRoom() = Room(id, name)

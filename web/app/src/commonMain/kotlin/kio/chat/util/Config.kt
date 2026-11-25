@@ -11,6 +11,7 @@ object Config {
     val APK_DOWNLOAD_DIRECTORY: String
         get() = kio.async.io.getEnv("APK_DOWNLOAD_DIRECTORY") ?: "/opt/kchat/downloads"
 
+    const val UPLOAD_DIR = "./data/uploads/"
     const val ANDROID_APK_URL = "/downloads/kio-chat.apk"
     val ANDROID_APP_VERSION = AppVersion(
         versionCode = AppBuildVersion.VERSION_CODE,

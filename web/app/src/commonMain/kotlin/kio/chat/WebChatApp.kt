@@ -43,6 +43,14 @@ suspend fun CoroutineScope.chatApp(serverSocket: ServerSocket) {
                     get("/") { call -> call.chatMainPage() }
                     roomRoute()
                     websocket("/events") { c -> c.handleObserveUserEvent() }
+
+                    staticResource(
+                        remotePath = "/attachments",
+                        basePackage = "data/uploads",
+                        configHeaders = {
+                            append(HttpHeaders.CacheControl, "public, max-age=31536000, immutable")
+                        }
+                    )
                 }
 
                 staticResource(
@@ -82,6 +90,7 @@ private suspend fun CoroutineScope.setupServer(
         DataSourceType.MOCK -> {
             httpServer(
                 serverSocket = serverSocket,
+                loggingBackEnd = AsyncLoggingBackEnd(this, enableTrace = true),
             ) {
                 block(MockRepositoryImpl())
             }
@@ -92,7 +101,10 @@ private suspend fun CoroutineScope.setupServer(
             try {
                 val repo = Repository(pool)
                 val watchJob = with (repo) { startWatchingMessageEvent() }
-                httpServer(serverSocket = serverSocket) { block(repo) }
+                httpServer(
+                    serverSocket = serverSocket,
+                    loggingBackEnd = AsyncLoggingBackEnd(this, enableTrace = true),
+                ) { block(repo) }
                 watchJob.join()
             } finally {
                 withContext(kotlinx.coroutines.NonCancellable) { pool.close() }

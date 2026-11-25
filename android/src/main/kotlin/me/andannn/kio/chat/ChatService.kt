@@ -6,7 +6,6 @@ import kotlinx.coroutines.withContext
 import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.utils.io.readAvailable
-import android.util.Log
 import android.webkit.CookieManager
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.plugins.websocket.WebSockets
@@ -29,6 +28,9 @@ import io.ktor.client.request.delete
 import io.ktor.client.request.patch
 import io.ktor.client.request.setBody
 import io.ktor.client.request.forms.FormDataContent
+import io.ktor.client.request.forms.formData
+import io.ktor.client.request.forms.submitFormWithBinaryData
+import io.ktor.http.Headers
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.encodedPath
 import io.ktor.http.ContentType
@@ -54,6 +56,7 @@ import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.serialization.json.Json
+import timber.log.Timber
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.coroutines.resume
@@ -69,6 +72,7 @@ interface ChatService {
     suspend fun register(userName: String, password: String, confirmPassword: String, nickname: String): ApiResult<Unit>
     suspend fun login(userName: String, password: String): ApiResult<Unit>
     suspend fun sendMessage(roomId: Long, content: String): ApiResult<Unit>
+    suspend fun sendImageMessage(roomId: Long, imageBytes: ByteArray, width: Int, height: Int): ApiResult<Unit>
     suspend fun updateMessage(roomId: Long, messageId: Long, content: String): ApiResult<Unit>
     suspend fun deleteMessage(roomId: Long, messageId: Long): ApiResult<Unit>
     suspend fun getMessageHistory(roomId: Long, beforeId: Long): ApiResult<MessagePage>
@@ -95,63 +99,66 @@ data class ApiResult<T>(val value: T?, val error: ApiError?)
 private const val BASE_URL = BuildConfig.BASE_URL
 private const val BASE_WS_URL = BuildConfig.BASE_WS_URL
 
-class ChatServiceImpl : ChatService {
-    private val httpClient =
-        HttpClient(OkHttp) {
-            engine {
-                config {
-                    connectTimeout(10, TimeUnit.SECONDS)
-                }
-            }
-
-            expectSuccess = true
-            followRedirects = false
-
-            defaultRequest {
-                url("${BASE_URL}:7879/")
-                contentType(ContentType.Application.Json)
-                accept(ContentType.Application.Json)
-            }
-
-            install(WebSockets)
-
-            install(HttpCookies) {
-                storage = CustomCookiesStorage()
-            }
-
-            install(ContentNegotiation) {
-                json(
-                    Json {
-                        prettyPrint = true
-                        ignoreUnknownKeys = true
-                    },
-                )
-            }
-
-            HttpResponseValidator {
-                handleResponseExceptionWithRequest { cause, _ ->
-                    val response = (cause as? ResponseException)?.response
-                        ?: return@handleResponseExceptionWithRequest
-
-                    if (
-                        response.status == HttpStatusCode.Found &&
-                        response.headers[HttpHeaders.Location] == "/login"
-                    ) {
-                        throw LoginRequiredException()
-                    }
-                }
-            }
-
-            install(Logging) {
-                logger =
-                    object : Logger {
-                        override fun log(message: String) {
-                            Log.d("HTTP-SERVICE", "HttpLogInfo: $message")
-                        }
-                    }
-                level = LogLevel.ALL
+fun createHttpClient(): HttpClient =
+    HttpClient(OkHttp) {
+        engine {
+            config {
+                connectTimeout(10, TimeUnit.SECONDS)
             }
         }
+
+        expectSuccess = true
+        followRedirects = false
+
+        defaultRequest {
+            url("${BASE_URL}/")
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Application.Json)
+        }
+
+        install(WebSockets)
+
+        install(HttpCookies) {
+            storage = CustomCookiesStorage()
+        }
+
+        install(ContentNegotiation) {
+            json(
+                Json {
+                    prettyPrint = true
+                    ignoreUnknownKeys = true
+                },
+            )
+        }
+
+        HttpResponseValidator {
+            handleResponseExceptionWithRequest { cause, _ ->
+                val response = (cause as? ResponseException)?.response
+                    ?: return@handleResponseExceptionWithRequest
+
+                if (
+                    response.status == HttpStatusCode.Found &&
+                    response.headers[HttpHeaders.Location] == "/login"
+                ) {
+                    throw LoginRequiredException()
+                }
+            }
+        }
+
+        install(Logging) {
+            logger =
+                object : Logger {
+                    override fun log(message: String) {
+                        Timber.tag("HTTP-SERVICE").d("HttpLogInfo: %s", message)
+                    }
+                }
+            level = LogLevel.HEADERS
+        }
+    }
+
+class ChatServiceImpl(
+    private val httpClient: HttpClient,
+) : ChatService {
 
     override suspend fun register(userName: String, password: String, confirmPassword: String, nickname: String): ApiResult<Unit> = tryGetResult {
         httpClient.submitForm(
@@ -188,6 +195,25 @@ class ChatServiceImpl : ChatService {
         ) {
             contentType(ContentType.Application.FormUrlEncoded)
         }
+    }
+
+    override suspend fun sendImageMessage(
+        roomId: Long,
+        imageBytes: ByteArray,
+        width: Int,
+        height: Int,
+    ): ApiResult<Unit> = tryGetResult {
+        httpClient.submitFormWithBinaryData(
+            url = "/rooms/$roomId/messages/image",
+            formData = formData {
+                append("width", width.toString())
+                append("height", height.toString())
+                append("image", imageBytes, Headers.build {
+                    append(HttpHeaders.ContentType, "image/jpeg")
+                    append(HttpHeaders.ContentDisposition, "filename=\"image.jpg\"")
+                })
+            }
+        )
     }
 
     override suspend fun updateMessage(roomId: Long, messageId: Long, content: String): ApiResult<Unit> = tryGetResult {
@@ -282,7 +308,7 @@ class ChatServiceImpl : ChatService {
     override suspend fun observeUserEvents(
         onEvent: suspend (UserEvent) -> Unit,
     ): ApiError? = tryGetResult {
-        httpClient.webSocket(urlString = "${BASE_WS_URL}:7879/events?format=json") {
+        httpClient.webSocket(urlString = "${BASE_WS_URL}/events?format=json") {
             for (frame in incoming) {
                 if (frame is Frame.Text) {
                     onEvent(Json.decodeFromString<UserEvent>(frame.readText()))
@@ -336,7 +362,7 @@ private suspend inline fun <reified T> tryGetResult(block: () -> T): ApiResult<T
     } catch (e: ResponseException) {
         ApiResult(null, ApiError.ServerError(e.response.bodyAsText(), e))
     } catch (e: Throwable) {
-        Log.e(TAG, "Unexpected error: $e")
+        Timber.tag(TAG).e(e, "Unexpected error: %s", e.message)
         ApiResult(null, ApiError.ServerError(e.message.toString(), e))
     }
 
