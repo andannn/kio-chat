@@ -1,10 +1,9 @@
 package kio.chat
 
 import io.ktor.http.*
-import kio.async.AsyncRawSource
+import kio.async.AsyncSource
 import kio.async.buffered
 import kio.async.poller
-import kio.async.readByteArray
 import kio.async.readString
 import kio.chat.components.*
 import kio.chat.domain.MessageExtra
@@ -19,7 +18,7 @@ import kio.chat.util.respondByContentType
 import kio.http.*
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.io.files.Path
-import kotlinx.io.files.SystemFileSystem
+import kotlin.time.TimeSource
 import kotlin.uuid.Uuid
 
 context(repo: Repository)
@@ -71,31 +70,34 @@ private suspend fun CallContext.handleNewTestMessage() {
 
 context(repo: Repository)
 private suspend fun CallContext.handleNewImageMessage() {
+    val totalStart = TimeSource.Monotonic.markNow()
+    val multipartStart = TimeSource.Monotonic.markNow()
     val reader = receiveMultipart()
-    var imageBytes: ByteArray? = null
+    var imageBytes: AsyncSource? = null
     var width: Int? = null
     var height: Int? = null
 
-        while (true) {
-            val part = reader.nextPart() ?: break
-            when (part.contentDisposition?.name) {
-                "image" -> {
-                    imageBytes = part.body.buffered().readByteArray()
-                }
-
-                "width" -> {
-                    width = part.body.buffered().readString().toIntOrNull()
-                }
-
-                "height" -> {
-                    height = part.body.buffered().readString().toIntOrNull()
-                }
-
-                else -> {
-                    part.body.buffered().readByteArray()
-                }
+    while (true) {
+        val part = reader.nextPart() ?: break
+        when (part.contentDisposition?.name) {
+            "width" -> {
+                width = part.body.buffered().readString().toIntOrNull()
             }
+
+            "height" -> {
+                height = part.body.buffered().readString().toIntOrNull()
+            }
+
+            "image" -> {
+                imageBytes = part.body.buffered()
+                break
+            }
+
+            else -> Unit
         }
+    }
+
+    val multipartMs = multipartStart.elapsedNow().inWholeMilliseconds
 
     if (imageBytes == null) {
         respond(HttpStatusCode.BadRequest, "缺少图片文件。")
@@ -105,10 +107,11 @@ private suspend fun CallContext.handleNewImageMessage() {
     val fileName = Uuid.random().toString() + ".webp"
     val filePath = Path(Config.UPLOAD_DIR, "image", fileName).toString()
 
+    val transcodeStart = TimeSource.Monotonic.markNow()
     val io = currentCoroutineContext().poller.io
     val result = io.compressImageSourceToWebp(
         doSendInput = { sink ->
-            sink.write(imageBytes)
+            sink.transferFrom(imageBytes)
         },
         doTransferData = { source ->
             val finalSink = fileSink(filePath).buffered()
@@ -120,9 +123,13 @@ private suspend fun CallContext.handleNewImageMessage() {
             }
         }
     )
+    val transcodeMs = transcodeStart.elapsedNow().inWholeMilliseconds
 
     if (result.isFailure) {
-        currentLogger().error("failed to save file", result.exceptionOrNull())
+        currentLogger().error(
+            "failed to save file (multipartMs=$multipartMs, transcodeMs=$transcodeMs)",
+            result.exceptionOrNull()
+        )
         respond(HttpStatusCode.InternalServerError, "图片处理失败。")
         return
     }
@@ -136,6 +143,7 @@ private suspend fun CallContext.handleNewImageMessage() {
         height = height ?: 0,
     )
 
+    val dbStart = TimeSource.Monotonic.markNow()
     repo.recordMessage(
         userId = userId,
         msg = "[图片]",
@@ -143,6 +151,10 @@ private suspend fun CallContext.handleNewImageMessage() {
         type = MessageType.Image,
         extra = extra,
     )
+    val dbMs = dbStart.elapsedNow().inWholeMilliseconds
+    val totalMs = totalStart.elapsedNow().inWholeMilliseconds
+
+    currentLogger().info("[image] upload room=$roomId multipartMs=$multipartMs transcodeMs=$transcodeMs dbMs=$dbMs totalMs=$totalMs")
 
     respond(HttpStatusCode.OK)
 }

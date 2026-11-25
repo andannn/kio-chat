@@ -20,9 +20,12 @@ actual suspend fun SuspendIo.compressImageSourceToWebp(
         val writeJob = launch {
             try {
                 doSendInput(sink)
-            } finally {
                 sink.flush()
-                sink.close()
+            } catch (_: IOException) {
+                // ffmpeg may close stdin early (e.g., with -frames:v 1 on multi-frame inputs or on error);
+                // rely on waitid exitStatus below to report ffmpeg failures.
+            } finally {
+                runCatching { sink.close() }
             }
         }
 
@@ -63,6 +66,7 @@ private suspend fun SuspendIo.prepareFfmpegCommand(): Result<FfmpegCommand> {
         "-nostdin",               // 避免交互式控制台挂起
         "-i", "pipe:0",           // 从标准输入读取待清洗图片流 (stdin)
         "-map_metadata", "-1",    // 清洗脱敏：彻底剥离 GPS、相机型号等全部 EXIF 隐私
+        "-frames:v", "1",         // 只取第一帧，防止多帧/Gainmap/缩略图 JPEG 触发 image2 报错
         "-vcodec", "libwebp",     // 转码为现代 WebP 格式
         "-compression_level", "4",// 压缩率与 CPU 开销的黄金平衡点 (0-6)
         "-q:v", "75",             // 视觉无损质量级别 (8MB -> ~200KB)
