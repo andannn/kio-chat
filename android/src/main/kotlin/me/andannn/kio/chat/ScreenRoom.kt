@@ -43,16 +43,25 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.sp
 import me.andannn.kio.chat.ui.theme.KioChatTheme
 import androidx.compose.ui.tooling.preview.Preview
@@ -61,9 +70,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation3.runtime.EntryProviderScope
 import androidx.navigation3.runtime.NavKey
 import kio.chat.domain.Message
+import kio.chat.domain.MessageExtra
 import kio.chat.domain.Room
 import kio.chat.domain.RoomMember
 import kio.chat.domain.UserChatEvent
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.onEach
@@ -76,6 +88,9 @@ import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.onSubscription
 import me.andannn.kio.chat.util.LocalSnackBarController
 import me.andannn.kio.chat.util.SnackBarController
+import me.andannn.kio.chat.util.VoiceMessagePlayer
+import me.andannn.kio.chat.util.VoicePlaybackState
+import me.andannn.kio.chat.util.VoiceRecorder
 import me.andannn.kio.chat.util.rememberAndSetupSnackBarHostState
 import org.koin.mp.KoinPlatform.getKoin
 import me.andannn.kio.chat.util.Presenter
@@ -121,6 +136,8 @@ sealed interface RoomUiEvent {
     data object OnToggleMuted : RoomUiEvent
     data object OnMicrophoneDenied : RoomUiEvent
     data class OnSendImage(val bytes: ByteArray, val width: Int, val height: Int) : RoomUiEvent
+    data class OnSendVoice(val bytes: ByteArray, val durationMs: Long) : RoomUiEvent
+    data class OnShowNotice(val message: String) : RoomUiEvent
 }
 
 private data class RoomLayoutState(
@@ -271,6 +288,16 @@ private class RoomLayoutPresenter(
     }
 
     context(_: RootNavigator, _: SnackBarController)
+    private fun sendVoice(bytes: ByteArray, durationMs: Long) {
+        retainedScope.launch {
+            val (_, error) = service.sendVoiceChatMessage(roomId, bytes, durationMs)
+            if (error != null) {
+                handleError(error)
+            }
+        }
+    }
+
+    context(_: RootNavigator, _: SnackBarController)
     private fun updateMessage(messageId: Long, content: String) {
         val text = content.trim()
         if (text.isEmpty()) return
@@ -315,6 +342,10 @@ private class RoomLayoutPresenter(
                     RoomUiEvent.OnBackClick -> navigator.popBackStack()
                     RoomUiEvent.OnSendClick -> sendMessage()
                     is RoomUiEvent.OnSendImage -> sendImage(event.bytes, event.width, event.height)
+                    is RoomUiEvent.OnSendVoice -> sendVoice(event.bytes, event.durationMs)
+                    is RoomUiEvent.OnShowNotice -> retainedScope.launch {
+                        handleError(ApiError.ServerError(event.message))
+                    }
                     RoomUiEvent.OnJoinVoice -> changeVoice { voiceRepository.join(roomId) }
                     RoomUiEvent.OnLeaveVoice -> changeVoice { voiceRepository.leave() }
                     RoomUiEvent.OnToggleMuted -> changeVoice { voiceRepository.setMuted(!voiceRepository.callState.value.muted) }
@@ -348,6 +379,29 @@ private fun RoomUi(
         val audioGranted = results[Manifest.permission.RECORD_AUDIO] == true
         currentEventSink(if (audioGranted) RoomUiEvent.OnJoinVoice else RoomUiEvent.OnMicrophoneDenied)
     }
+    val recordAudioPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) {
+            currentEventSink(RoomUiEvent.OnShowNotice("需要麦克风权限才能录制语音，请在系统设置中允许。"))
+        } else {
+            currentEventSink(RoomUiEvent.OnShowNotice("已获得麦克风权限，请长按麦克风按钮开始录音。"))
+        }
+    }
+    val playerScope = rememberCoroutineScope()
+    val voiceRecorder = remember(context) { VoiceRecorder(context) }
+    val voicePlayer = remember(context, playerScope) {
+        VoiceMessagePlayer(
+            context = context,
+            scope = playerScope,
+            onError = { msg -> currentEventSink(RoomUiEvent.OnShowNotice(msg)) },
+        )
+    }
+    DisposableEffect(voiceRecorder, voicePlayer) {
+        onDispose {
+            voiceRecorder.cancel()
+            voicePlayer.stop()
+        }
+    }
+    val voicePlayback by voicePlayer.state.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val currentMessages by rememberUpdatedState(state.messages)
     LaunchedEffect(state.effects, listState) {
@@ -399,6 +453,14 @@ private fun RoomUi(
         onLeaveVoice = { state.eventSink(RoomUiEvent.OnLeaveVoice) },
         onToggleMuted = { state.eventSink(RoomUiEvent.OnToggleMuted) },
         onSendImage = { bytes, w, h -> state.eventSink(RoomUiEvent.OnSendImage(bytes, w, h)) },
+        onSendVoice = { bytes, durationMs -> state.eventSink(RoomUiEvent.OnSendVoice(bytes, durationMs)) },
+        onRequestRecordAudioPermission = {
+            recordAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
+        },
+        onShowNotice = { msg -> state.eventSink(RoomUiEvent.OnShowNotice(msg)) },
+        voiceRecorder = voiceRecorder,
+        voicePlayback = voicePlayback,
+        onToggleVoice = { extra -> voicePlayer.toggle(extra.url, extra.durationMs) },
     )
 }
 
@@ -418,6 +480,12 @@ private fun RoomContent(
     onMessageChanged: (String) -> Unit = {},
     onSend: () -> Unit = {},
     onSendImage: (ByteArray, Int, Int) -> Unit = { _, _, _ -> },
+    onSendVoice: (ByteArray, Long) -> Unit = { _, _ -> },
+    onRequestRecordAudioPermission: () -> Unit = {},
+    onShowNotice: (String) -> Unit = {},
+    voiceRecorder: VoiceRecorder? = null,
+    voicePlayback: VoicePlaybackState = VoicePlaybackState(),
+    onToggleVoice: (MessageExtra.Voice) -> Unit = {},
     onBack: () -> Unit = {},
     onSettingClick: () -> Unit = {},
     onUpdateMessage: (Long, String) -> Unit = { _, _ -> },
@@ -476,11 +544,102 @@ private fun RoomContent(
                         onLeaveVoice = onLeaveVoice,
                         modifier = Modifier.padding(bottom = 8.dp),
                     )
+                    var isRecordingVoice by remember { mutableStateOf(false) }
+                    var isCancellingVoice by remember { mutableStateOf(false) }
+                    var recordingElapsedMs by remember { mutableLongStateOf(0L) }
+                    LaunchedEffect(isRecordingVoice) {
+                        if (!isRecordingVoice) {
+                            recordingElapsedMs = 0L
+                            return@LaunchedEffect
+                        }
+                        val startMs = System.currentTimeMillis()
+                        while (isActive) {
+                            val elapsed = System.currentTimeMillis() - startMs
+                            recordingElapsedMs = elapsed
+                            if (elapsed >= 60_000L) {
+                                val recorded = voiceRecorder?.stop()
+                                isRecordingVoice = false
+                                isCancellingVoice = false
+                                if (recorded != null) {
+                                    onSendVoice(recorded.bytes, recorded.durationMs)
+                                }
+                                break
+                            }
+                            delay(200L)
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = isRecordingVoice,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically(),
+                    ) {
+                        val sec = recordingElapsedMs / 1000L
+                        val minStr = sec / 60L
+                        val secStr = (sec % 60L).toString().padStart(2, '0')
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp),
+                            shape = RoundedCornerShape(16.dp),
+                            color = if (isCancellingVoice) {
+                                MaterialTheme.colorScheme.errorContainer
+                            } else {
+                                MaterialTheme.colorScheme.primaryContainer
+                            },
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (isCancellingVoice) MaterialTheme.colorScheme.error
+                                                else Color(0xFFE53935)
+                                            )
+                                    )
+                                    Text(
+                                        text = if (isCancellingVoice) {
+                                            "松开手指，取消发送"
+                                        } else {
+                                            "正在录音 $minStr:$secStr"
+                                        },
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = if (isCancellingVoice) {
+                                            MaterialTheme.colorScheme.onErrorContainer
+                                        } else {
+                                            MaterialTheme.colorScheme.onPrimaryContainer
+                                        },
+                                    )
+                                }
+                                Text(
+                                    text = if (isCancellingVoice) "已准备取消" else "上滑取消",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (isCancellingVoice) {
+                                        MaterialTheme.colorScheme.onErrorContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)
+                                    },
+                                )
+                            }
+                        }
+                    }
+
                     Row(
                         modifier = Modifier.padding(top = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         val context = LocalContext.current
+                        val haptics = LocalHapticFeedback.current
+                        val cancelDragThresholdPx = with(LocalDensity.current) { 60.dp.toPx() }
                         val photoPickerLauncher = rememberLauncherForActivityResult(
                             contract = ActivityResultContracts.PickVisualMedia()
                         ) { uri: Uri? ->
@@ -512,12 +671,98 @@ private fun RoomContent(
                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                 )
                             },
-                            modifier = Modifier.padding(end = 4.dp)
+                            modifier = Modifier.padding(end = 2.dp)
                         ) {
                             Icon(
                                 Icons.Default.Image,
                                 contentDescription = "发送图片",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+
+                        val currentVoiceCall by rememberUpdatedState(voiceCall)
+                        Box(
+                            modifier = Modifier
+                                .padding(end = 4.dp)
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    when {
+                                        isCancellingVoice -> MaterialTheme.colorScheme.errorContainer
+                                        isRecordingVoice -> MaterialTheme.colorScheme.primaryContainer
+                                        else -> Color.Transparent
+                                    }
+                                )
+                                .pointerInput(voiceRecorder) {
+                                    awaitEachGesture {
+                                        val down = awaitFirstDown(requireUnconsumed = false)
+                                        if (voiceRecorder == null) return@awaitEachGesture
+                                        val hasMicPermission = context.checkSelfPermission(
+                                            Manifest.permission.RECORD_AUDIO
+                                        ) == PackageManager.PERMISSION_GRANTED
+                                        if (!hasMicPermission) {
+                                            onRequestRecordAudioPermission()
+                                            return@awaitEachGesture
+                                        }
+                                        if (currentVoiceCall.roomId != null) {
+                                            onShowNotice("语音通话中暂不支持录制语音消息。")
+                                            return@awaitEachGesture
+                                        }
+                                        if (!voiceRecorder.start()) {
+                                            onShowNotice("无法启动录音，请检查麦克风是否被占用。")
+                                            return@awaitEachGesture
+                                        }
+
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        isRecordingVoice = true
+                                        isCancellingVoice = false
+                                        val startY = down.position.y
+                                        var finishedNormally = false
+
+                                        try {
+                                            while (true) {
+                                                val event = awaitPointerEvent()
+                                                val change = event.changes.firstOrNull { it.id == down.id }
+                                                    ?: event.changes.firstOrNull()
+                                                if (change == null || !change.pressed) {
+                                                    finishedNormally = true
+                                                    break
+                                                }
+                                                change.consume()
+                                                isCancellingVoice = (startY - change.position.y) > cancelDragThresholdPx
+                                            }
+                                        } finally {
+                                            val shouldCancel = !finishedNormally || isCancellingVoice
+                                            val wasStillRecording = isRecordingVoice
+                                            isRecordingVoice = false
+                                            isCancellingVoice = false
+                                            if (wasStillRecording) {
+                                                if (shouldCancel) {
+                                                    voiceRecorder.cancel()
+                                                } else {
+                                                    val recorded = voiceRecorder.stop()
+                                                    if (recorded != null) {
+                                                        if (recorded.durationMs < 500L) {
+                                                            onShowNotice("录音时间太短。")
+                                                        } else {
+                                                            onSendVoice(recorded.bytes, recorded.durationMs)
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Mic,
+                                contentDescription = "长按录制语音",
+                                tint = when {
+                                    isCancellingVoice -> MaterialTheme.colorScheme.error
+                                    isRecordingVoice -> MaterialTheme.colorScheme.primary
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                },
                             )
                         }
 
@@ -562,6 +807,8 @@ private fun RoomContent(
                         modifier = Modifier.animateItem(placementSpec = null),
                         message = message,
                         isMine = isMine,
+                        voicePlayback = voicePlayback,
+                        onToggleVoice = onToggleVoice,
                         onDelete = { onDeleteMessage(message.id) },
                         onEdit = { onUpdateMessage(message.id, it) },
                     )

@@ -14,11 +14,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
@@ -48,6 +57,7 @@ import kio.chat.domain.RoomMember
 import kio.chat.domain.RoomRole
 import me.andannn.kio.chat.BuildConfig
 import me.andannn.kio.chat.ui.theme.KioChatTheme
+import me.andannn.kio.chat.util.VoicePlaybackState
 import timber.log.Timber
 
 private const val MAX_MESSAGE_LENGTH = 2000
@@ -57,6 +67,8 @@ internal fun MessageItem(
     message: Message,
     isMine: Boolean,
     modifier: Modifier = Modifier,
+    voicePlayback: VoicePlaybackState = VoicePlaybackState(),
+    onToggleVoice: (MessageExtra.Voice) -> Unit = {},
     onDelete: () -> Unit = {},
     onEdit: (String) -> Unit = {},
 ) {
@@ -130,6 +142,8 @@ internal fun MessageItem(
                 MessageBubble(
                     message = message,
                     isMine = isMine,
+                    voicePlayback = voicePlayback,
+                    onToggleVoice = onToggleVoice,
                     onLongClick = { showActions = true },
                 )
             }
@@ -288,6 +302,8 @@ private fun RoomRoleBadge(
 private fun MessageBubble(
     message: Message,
     isMine: Boolean,
+    voicePlayback: VoicePlaybackState,
+    onToggleVoice: (MessageExtra.Voice) -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -322,9 +338,17 @@ private fun MessageBubble(
                     isMine = isMine,
                     modifier = longPressModifier,
                 )
-                is MessageExtra.Voice -> MessageTextContent(
-                    text = message.text,
-                    modifier = longPressModifier,
+                is MessageExtra.Voice -> MessageVoiceContent(
+                    extra = extra,
+                    isMine = isMine,
+                    playback = voicePlayback,
+                    onToggle = { onToggleVoice(extra) },
+                    onLongClick = if (isMine) {
+                        {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onLongClick()
+                        }
+                    } else null,
                 )
                 null -> MessageTextContent(
                     text = message.text,
@@ -332,6 +356,86 @@ private fun MessageBubble(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun MessageVoiceContent(
+    extra: MessageExtra.Voice,
+    isMine: Boolean,
+    playback: VoicePlaybackState,
+    onToggle: () -> Unit,
+    onLongClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val isCurrent = playback.activeUrl == extra.url
+    val isLoading = playback.loadingUrl == extra.url
+    val isPlaying = isCurrent && playback.isPlaying
+    val totalSeconds = ((extra.durationMs + 500L) / 1000L).coerceAtLeast(1L)
+    val displaySeconds = if (isCurrent && playback.durationMs > 0L) {
+        val remainingMs = (playback.durationMs - playback.currentPositionMs).coerceAtLeast(0L)
+        ((remainingMs + 500L) / 1000L).coerceAtLeast(0L)
+    } else {
+        totalSeconds
+    }
+    val bubbleWidth = (140 + totalSeconds.coerceAtMost(30L).toInt() * 3).dp
+    val progress = if (isCurrent) playback.progress else 0f
+
+    val accentColor = if (isMine) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+
+    Row(
+        modifier = modifier
+            .width(bubbleWidth)
+            .combinedClickable(
+                onClick = onToggle,
+                onLongClickLabel = if (onLongClick != null) "消息操作" else null,
+                onLongClick = onLongClick,
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(30.dp)
+                .clip(CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(18.dp),
+                    strokeWidth = 2.dp,
+                    color = accentColor,
+                )
+            } else {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (isPlaying) "暂停语音" else "播放语音",
+                    tint = accentColor,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        }
+
+        LinearProgressIndicator(
+            progress = { progress },
+            modifier = Modifier
+                .weight(1f)
+                .height(4.dp)
+                .clip(RoundedCornerShape(2.dp)),
+            color = accentColor,
+            trackColor = accentColor.copy(alpha = 0.24f),
+        )
+
+        Text(
+            text = "${displaySeconds}\"",
+            style = MaterialTheme.typography.labelMedium,
+            color = accentColor,
+        )
     }
 }
 

@@ -73,6 +73,7 @@ interface ChatService {
     suspend fun login(userName: String, password: String): ApiResult<Unit>
     suspend fun sendMessage(roomId: Long, content: String): ApiResult<Unit>
     suspend fun sendImageMessage(roomId: Long, imageBytes: ByteArray, width: Int, height: Int): ApiResult<Unit>
+    suspend fun sendVoiceChatMessage(roomId: Long, voiceBytes: ByteArray, durationMs: Long): ApiResult<Unit>
     suspend fun updateMessage(roomId: Long, messageId: Long, content: String): ApiResult<Unit>
     suspend fun deleteMessage(roomId: Long, messageId: Long): ApiResult<Unit>
     suspend fun getMessageHistory(roomId: Long, beforeId: Long): ApiResult<MessagePage>
@@ -211,6 +212,23 @@ class ChatServiceImpl(
                 append("image", imageBytes, Headers.build {
                     append(HttpHeaders.ContentType, "image/jpeg")
                     append(HttpHeaders.ContentDisposition, "filename=\"image.jpg\"")
+                })
+            }
+        )
+    }
+
+    override suspend fun sendVoiceChatMessage(
+        roomId: Long,
+        voiceBytes: ByteArray,
+        durationMs: Long,
+    ): ApiResult<Unit> = tryGetResult {
+        httpClient.submitFormWithBinaryData(
+            url = "/rooms/$roomId/messages/voice",
+            formData = formData {
+                append("durationMs", durationMs.toString())
+                append("voice", voiceBytes, Headers.build {
+                    append(HttpHeaders.ContentType, "audio/mp4")
+                    append(HttpHeaders.ContentDisposition, "filename=\"voice.m4a\"")
                 })
             }
         )
