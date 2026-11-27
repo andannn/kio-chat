@@ -10,34 +10,26 @@ import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material.icons.filled.AttachFile
+import me.andannn.kio.chat.util.enqueueOrOpenFileDownload
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.icons.filled.Call
-import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.Headset
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -55,14 +47,12 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.unit.sp
 import me.andannn.kio.chat.ui.theme.KioChatTheme
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -100,6 +90,7 @@ import me.andannn.kio.chat.util.stateInRetainedModel
 import me.andannn.kio.chat.widget.UserAvatar
 import me.andannn.kio.chat.widget.VoiceCallBubble
 import me.andannn.kio.chat.widget.MessageItem
+import androidx.core.net.toUri
 
 private const val TAG = "ScreenRoom"
 
@@ -137,6 +128,7 @@ sealed interface RoomUiEvent {
     data object OnMicrophoneDenied : RoomUiEvent
     data class OnSendImage(val bytes: ByteArray, val width: Int, val height: Int) : RoomUiEvent
     data class OnSendVoice(val bytes: ByteArray, val durationMs: Long) : RoomUiEvent
+    data class OnSendFile(val uri: Uri) : RoomUiEvent
     data class OnShowNotice(val message: String) : RoomUiEvent
 }
 
@@ -298,6 +290,16 @@ private class RoomLayoutPresenter(
     }
 
     context(_: RootNavigator, _: SnackBarController)
+    private fun sendFile(uri: Uri) {
+        retainedScope.launch {
+            val (_, error) = service.sendFileMessage(roomId, uri)
+            if (error != null) {
+                handleError(error)
+            }
+        }
+    }
+
+    context(_: RootNavigator, _: SnackBarController)
     private fun updateMessage(messageId: Long, content: String) {
         val text = content.trim()
         if (text.isEmpty()) return
@@ -343,6 +345,7 @@ private class RoomLayoutPresenter(
                     RoomUiEvent.OnSendClick -> sendMessage()
                     is RoomUiEvent.OnSendImage -> sendImage(event.bytes, event.width, event.height)
                     is RoomUiEvent.OnSendVoice -> sendVoice(event.bytes, event.durationMs)
+                    is RoomUiEvent.OnSendFile -> sendFile(event.uri)
                     is RoomUiEvent.OnShowNotice -> retainedScope.launch {
                         handleError(ApiError.ServerError(event.message))
                     }
@@ -454,6 +457,14 @@ private fun RoomUi(
         onToggleMuted = { state.eventSink(RoomUiEvent.OnToggleMuted) },
         onSendImage = { bytes, w, h -> state.eventSink(RoomUiEvent.OnSendImage(bytes, w, h)) },
         onSendVoice = { bytes, durationMs -> state.eventSink(RoomUiEvent.OnSendVoice(bytes, durationMs)) },
+        onSendFile = { uri -> state.eventSink(RoomUiEvent.OnSendFile(uri)) },
+        onOpenFile = { file ->
+            enqueueOrOpenFileDownload(
+                context = context,
+                file = file,
+                onNotice = { msg -> state.eventSink(RoomUiEvent.OnShowNotice(msg)) },
+            )
+        },
         onRequestRecordAudioPermission = {
             recordAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
         },
@@ -481,6 +492,8 @@ private fun RoomContent(
     onSend: () -> Unit = {},
     onSendImage: (ByteArray, Int, Int) -> Unit = { _, _, _ -> },
     onSendVoice: (ByteArray, Long) -> Unit = { _, _ -> },
+    onSendFile: (Uri) -> Unit = {},
+    onOpenFile: (MessageExtra.File) -> Unit = {},
     onRequestRecordAudioPermission: () -> Unit = {},
     onShowNotice: (String) -> Unit = {},
     voiceRecorder: VoiceRecorder? = null,
@@ -683,6 +696,14 @@ private fun RoomContent(
                             },
                         )
 
+                        val filePickerLauncher = rememberLauncherForActivityResult(
+                            contract = ActivityResultContracts.OpenDocument()
+                        ) { uri: Uri? ->
+                            if (uri != null) {
+                                onSendFile(uri)
+                            }
+                        }
+
                         IconButton(
                             onClick = {
                                 photoPickerLauncher.launch(
@@ -694,6 +715,18 @@ private fun RoomContent(
                             Icon(
                                 Icons.Default.Image,
                                 contentDescription = "发送图片",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+
+                        IconButton(
+                            onClick = {
+                                filePickerLauncher.launch(arrayOf("*/*"))
+                            },
+                        ) {
+                            Icon(
+                                Icons.Default.AttachFile,
+                                contentDescription = "发送文件",
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
@@ -809,6 +842,7 @@ private fun RoomContent(
                         isMine = isMine,
                         voicePlayback = voicePlayback,
                         onToggleVoice = onToggleVoice,
+                        onOpenFile = onOpenFile,
                         onDelete = { onDeleteMessage(message.id) },
                         onEdit = { onUpdateMessage(message.id, it) },
                     )

@@ -1,6 +1,7 @@
 package me.andannn.kio.chat.widget
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -20,6 +21,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Description
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.AlertDialog
@@ -41,6 +44,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -69,6 +74,7 @@ internal fun MessageItem(
     modifier: Modifier = Modifier,
     voicePlayback: VoicePlaybackState = VoicePlaybackState(),
     onToggleVoice: (MessageExtra.Voice) -> Unit = {},
+    onOpenFile: (MessageExtra.File) -> Unit = {},
     onDelete: () -> Unit = {},
     onEdit: (String) -> Unit = {},
 ) {
@@ -144,6 +150,7 @@ internal fun MessageItem(
                     isMine = isMine,
                     voicePlayback = voicePlayback,
                     onToggleVoice = onToggleVoice,
+                    onOpenFile = onOpenFile,
                     onLongClick = { showActions = true },
                 )
             }
@@ -304,6 +311,7 @@ private fun MessageBubble(
     isMine: Boolean,
     voicePlayback: VoicePlaybackState,
     onToggleVoice: (MessageExtra.Voice) -> Unit,
+    onOpenFile: (MessageExtra.File) -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -343,6 +351,17 @@ private fun MessageBubble(
                     isMine = isMine,
                     playback = voicePlayback,
                     onToggle = { onToggleVoice(extra) },
+                    onLongClick = if (isMine) {
+                        {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onLongClick()
+                        }
+                    } else null,
+                )
+                is MessageExtra.File -> MessageFileContent(
+                    extra = extra,
+                    isMine = isMine,
+                    onClick = { onOpenFile(extra) },
                     onLongClick = if (isMine) {
                         {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -467,6 +486,86 @@ private fun MessageImageContent(
             ),
         contentScale = ContentScale.Crop,
     )
+}
+
+@Composable
+private fun MessageFileContent(
+    extra: MessageExtra.File,
+    isMine: Boolean,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
+    modifier: Modifier = Modifier,
+) {
+    val accentColor = if (isMine) {
+        MaterialTheme.colorScheme.onPrimaryContainer
+    } else {
+        MaterialTheme.colorScheme.primary
+    }
+    val secondaryColor = if (isMine) {
+        MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f)
+    } else {
+        MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Row(
+        modifier = modifier
+            .widthIn(min = 200.dp, max = 260.dp)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClickLabel = if (onLongClick != null) "消息操作" else null,
+                onLongClick = onLongClick,
+            )
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(accentColor.copy(alpha = 0.14f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Default.Description,
+                contentDescription = "文件",
+                tint = accentColor,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = extra.name,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.Medium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = formatFileSize(extra.size),
+                style = MaterialTheme.typography.labelSmall,
+                color = secondaryColor,
+            )
+        }
+
+        Icon(
+            imageVector = Icons.Default.Download,
+            contentDescription = "下载并打开",
+            tint = secondaryColor,
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+private fun formatFileSize(bytes: Long): String {
+    if (bytes < 1024L) return "$bytes B"
+    if (bytes < 1024L * 1024L) return "${bytes / 1024L} KB"
+    val tenths = (bytes * 10L) / (1024L * 1024L)
+    return "${tenths / 10L}.${tenths % 10L} MB"
 }
 
 @Composable

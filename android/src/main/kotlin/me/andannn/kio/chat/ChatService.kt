@@ -1,11 +1,16 @@
 package me.andannn.kio.chat
 
+import android.content.Context
+import android.net.Uri
 import java.io.File
+import java.io.IOException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import io.ktor.client.request.prepareGet
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.utils.io.readAvailable
+import me.andannn.kio.chat.util.queryFileMetadata
+import me.andannn.kio.chat.util.toChannelProvider
 import android.webkit.CookieManager
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.plugins.websocket.WebSockets
@@ -74,6 +79,7 @@ interface ChatService {
     suspend fun sendMessage(roomId: Long, content: String): ApiResult<Unit>
     suspend fun sendImageMessage(roomId: Long, imageBytes: ByteArray, width: Int, height: Int): ApiResult<Unit>
     suspend fun sendVoiceChatMessage(roomId: Long, voiceBytes: ByteArray, durationMs: Long): ApiResult<Unit>
+    suspend fun sendFileMessage(roomId: Long, uri: Uri): ApiResult<Unit>
     suspend fun updateMessage(roomId: Long, messageId: Long, content: String): ApiResult<Unit>
     suspend fun deleteMessage(roomId: Long, messageId: Long): ApiResult<Unit>
     suspend fun getMessageHistory(roomId: Long, beforeId: Long): ApiResult<MessagePage>
@@ -159,6 +165,7 @@ fun createHttpClient(): HttpClient =
 
 class ChatServiceImpl(
     private val httpClient: HttpClient,
+    private val context: Context,
 ) : ChatService {
 
     override suspend fun register(userName: String, password: String, confirmPassword: String, nickname: String): ApiResult<Unit> = tryGetResult {
@@ -230,6 +237,29 @@ class ChatServiceImpl(
                     append(HttpHeaders.ContentType, "audio/mp4")
                     append(HttpHeaders.ContentDisposition, "filename=\"voice.m4a\"")
                 })
+            }
+        )
+    }
+
+    override suspend fun sendFileMessage(roomId: Long, uri: Uri): ApiResult<Unit> = tryGetResult {
+        val resolver = context.contentResolver
+        val (fileName, fileSize, mimeType) = resolver.queryFileMetadata(uri)
+        if (fileSize == 0L) {
+            throw IOException("不能上传空文件。")
+        }
+        val safeName = fileName.replace("\"", "_")
+        val resolvedMime = mimeType?.takeIf { it.isNotBlank() } ?: ContentType.Application.OctetStream.toString()
+        httpClient.submitFormWithBinaryData(
+            url = "/rooms/$roomId/messages/file",
+            formData = formData {
+                append(
+                    key = "file",
+                    value = uri.toChannelProvider(resolver, fileSize),
+                    headers = Headers.build {
+                        append(HttpHeaders.ContentType, resolvedMime)
+                        append(HttpHeaders.ContentDisposition, "filename=\"$safeName\"")
+                    },
+                )
             }
         )
     }
