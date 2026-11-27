@@ -12,6 +12,17 @@ import kotlinx.coroutines.launch
 actual suspend fun SuspendIo.compressImageSourceToWebp(
     doSendInput: suspend (AsyncSink) -> Unit,
     doTransferData: suspend (AsyncSource) -> Unit
+): Result<Unit> = passthroughPipe(doSendInput, doTransferData)
+
+// Mock implementation
+actual suspend fun SuspendIo.transcodeAudioSourceToM4a(
+    doSendInput: suspend (AsyncSink) -> Unit,
+    doTransferData: suspend (AsyncSource) -> Unit
+): Result<Unit> = passthroughPipe(doSendInput, doTransferData)
+
+private suspend fun passthroughPipe(
+    doSendInput: suspend (AsyncSink) -> Unit,
+    doTransferData: suspend (AsyncSource) -> Unit,
 ): Result<Unit> = runCatching {
     coroutineScope {
         val pipeConn = openInMemoryPipe().buffered()

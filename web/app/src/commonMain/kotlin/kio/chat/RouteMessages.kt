@@ -14,7 +14,9 @@ import kio.chat.util.Config
 import kio.chat.util.compressImageSourceToWebp
 import kio.chat.util.fileSink
 import kio.chat.util.json
+import kio.chat.util.removeFile
 import kio.chat.util.respondByContentType
+import kio.chat.util.transcodeAudioSourceToM4a
 import kio.http.*
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.io.files.Path
@@ -26,6 +28,7 @@ fun Route.messagesRoute() {
     route("messages") {
         post { call -> call.handleNewTestMessage() }
         post("image") { call -> call.handleNewImageMessage() }
+        post("voice") { call -> call.handleNewVoiceMessage() }
         get { call -> call.handleGetMessageHistory() }
 
         route("/{id}") {
@@ -109,23 +112,19 @@ private suspend fun CallContext.handleNewImageMessage() {
 
     val transcodeStart = TimeSource.Monotonic.markNow()
     val io = currentCoroutineContext().poller.io
+    var savedSize = 0L
     val result = io.compressImageSourceToWebp(
         doSendInput = { sink ->
             sink.transferFrom(imageBytes)
         },
         doTransferData = { source ->
-            val finalSink = fileSink(filePath).buffered()
-            try {
-                source.transferTo(finalSink)
-                finalSink.flush()
-            } finally {
-                finalSink.close()
-            }
+            savedSize = saveStreamToFile(source, filePath)
         }
     )
     val transcodeMs = transcodeStart.elapsedNow().inWholeMilliseconds
 
     if (result.isFailure) {
+        runCatching { removeFile(filePath) }
         currentLogger().error(
             "failed to save file (multipartMs=$multipartMs, transcodeMs=$transcodeMs)",
             result.exceptionOrNull()
@@ -141,6 +140,7 @@ private suspend fun CallContext.handleNewImageMessage() {
         url = url,
         width = width ?: 0,
         height = height ?: 0,
+        size = savedSize,
     )
 
     val dbStart = TimeSource.Monotonic.markNow()
@@ -157,6 +157,105 @@ private suspend fun CallContext.handleNewImageMessage() {
     currentLogger().info("[image] upload room=$roomId multipartMs=$multipartMs transcodeMs=$transcodeMs dbMs=$dbMs totalMs=$totalMs")
 
     respond(HttpStatusCode.OK)
+}
+
+context(repo: Repository)
+private suspend fun CallContext.handleNewVoiceMessage() {
+    val totalStart = TimeSource.Monotonic.markNow()
+    val multipartStart = TimeSource.Monotonic.markNow()
+    val reader = receiveMultipart()
+    var voiceBytes: AsyncSource? = null
+    var durationMs: Long? = null
+
+    while (true) {
+        val part = reader.nextPart() ?: break
+        when (part.contentDisposition?.name) {
+            "durationMs" -> {
+                durationMs = part.body.buffered().readString().toLongOrNull()
+            }
+
+            "voice" -> {
+                voiceBytes = part.body.buffered()
+                break
+            }
+
+            else -> Unit
+        }
+    }
+
+    val multipartMs = multipartStart.elapsedNow().inWholeMilliseconds
+
+    if (voiceBytes == null) {
+        respond(HttpStatusCode.BadRequest, "缺少语音文件。")
+        return
+    }
+
+    val resolvedDurationMs = durationMs ?: 0L
+    if (resolvedDurationMs < 0 || resolvedDurationMs > 300_000L) {
+        respond(HttpStatusCode.BadRequest, "语音时长须在 0–300 秒之间。")
+        return
+    }
+
+    val fileName = Uuid.random().toString() + ".m4a"
+    val filePath = Path(Config.UPLOAD_DIR, "voice", fileName).toString()
+
+    val transcodeStart = TimeSource.Monotonic.markNow()
+    val io = currentCoroutineContext().poller.io
+    var savedSize = 0L
+    val result = io.transcodeAudioSourceToM4a(
+        doSendInput = { sink ->
+            sink.transferFrom(voiceBytes)
+        },
+        doTransferData = { source ->
+            savedSize = saveStreamToFile(source, filePath)
+        }
+    )
+    val transcodeMs = transcodeStart.elapsedNow().inWholeMilliseconds
+
+    if (result.isFailure || savedSize <= 0L) {
+        runCatching { removeFile(filePath) }
+        currentLogger().error(
+            "failed to save voice file (multipartMs=$multipartMs, transcodeMs=$transcodeMs, savedSize=$savedSize)",
+            result.exceptionOrNull()
+        )
+        respond(HttpStatusCode.InternalServerError, "语音处理失败。")
+        return
+    }
+
+    val url = "/attachments/voice/$fileName"
+    val roomId = requireRoomId()
+    val userId = requireSession().userId
+    val extra = MessageExtra.Voice(
+        url = url,
+        durationMs = resolvedDurationMs,
+        size = savedSize,
+    )
+
+    val dbStart = TimeSource.Monotonic.markNow()
+    repo.recordMessage(
+        userId = userId,
+        msg = "[语音]",
+        roomId = roomId,
+        type = MessageType.Voice,
+        extra = extra,
+    )
+    val dbMs = dbStart.elapsedNow().inWholeMilliseconds
+    val totalMs = totalStart.elapsedNow().inWholeMilliseconds
+
+    currentLogger().info("[voice] upload room=$roomId durationMs=$resolvedDurationMs size=$savedSize multipartMs=$multipartMs transcodeMs=$transcodeMs dbMs=$dbMs totalMs=$totalMs")
+
+    respond(HttpStatusCode.OK)
+}
+
+private suspend fun saveStreamToFile(source: AsyncSource, filePath: String): Long {
+    val finalSink = fileSink(filePath).buffered()
+    return try {
+        val bytes = source.transferTo(finalSink)
+        finalSink.flush()
+        bytes
+    } finally {
+        finalSink.close()
+    }
 }
 
 private suspend fun CallContext.messageIdOrRespond(): Long? {

@@ -55,6 +55,14 @@ sealed interface MessageExtra {
         @SerialName("size") val size: Long? = null,
         @SerialName("thumbnailUrl") val thumbnailUrl: String? = null,
     ) : MessageExtra
+
+    @Serializable
+    @SerialName("voice")
+    data class Voice(
+        @SerialName("url") val url: String,
+        @SerialName("durationMs") val durationMs: Long,
+        @SerialName("size") val size: Long? = null,
+    ) : MessageExtra
 }
 
 @Serializable

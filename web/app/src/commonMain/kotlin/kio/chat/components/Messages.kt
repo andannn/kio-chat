@@ -29,6 +29,11 @@ private fun ARTICLE.messageItem(message: Message, isMine: Boolean, roomId: Long)
                     }
                 }
             }
+            is MessageExtra.Voice -> {
+                p(classes = "message-text") {
+                    +message.text
+                }
+            }
             null -> {
                 p(classes = "message-text") {
                     +message.text

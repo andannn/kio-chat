@@ -322,6 +322,10 @@ private fun MessageBubble(
                     isMine = isMine,
                     modifier = longPressModifier,
                 )
+                is MessageExtra.Voice -> MessageTextContent(
+                    text = message.text,
+                    modifier = longPressModifier,
+                )
                 null -> MessageTextContent(
                     text = message.text,
                     modifier = longPressModifier,

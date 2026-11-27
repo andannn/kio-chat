@@ -15,8 +15,52 @@ import platform.posix.*
 actual suspend fun SuspendIo.compressImageSourceToWebp(
     doSendInput: suspend (AsyncSink) -> Unit,
     doTransferData: suspend (AsyncSource) -> Unit,
+): Result<Unit> {
+    val args = listOf(
+        "-v", "error",            // 只输出致命错误日志，避免污染管道
+        "-nostdin",               // 避免交互式控制台挂起
+        "-i", "pipe:0",           // 从标准输入读取待清洗图片流 (stdin)
+        "-map_metadata", "-1",    // 清洗脱敏：彻底剥离 GPS、相机型号等全部 EXIF 隐私
+        "-frames:v", "1",         // 只取第一帧，防止多帧/Gainmap/缩略图 JPEG 触发 image2 报错
+        "-vcodec", "libwebp",     // 转码为现代 WebP 格式
+        "-compression_level", "4",// 压缩率与 CPU 开销的黄金平衡点 (0-6)
+        "-q:v", "75",             // 视觉无损质量级别 (8MB -> ~200KB)
+        "-vf", "scale='min(2048,iw)':'min(2048,ih)':force_original_aspect_ratio=decrease", // 限制最大边不超 2048px，防像素爆炸
+        "-f", "image2",           // 输出到 pipe 时必须显式声明封装格式为单张图片流
+        "pipe:1"                  // 从标准输出写出 WebP 字节流 (stdout)
+    )
+    return runFfmpegPipeCommand(args, doSendInput, doTransferData)
+}
+
+@OptIn(ExperimentalForeignApi::class)
+actual suspend fun SuspendIo.transcodeAudioSourceToM4a(
+    doSendInput: suspend (AsyncSink) -> Unit,
+    doTransferData: suspend (AsyncSource) -> Unit,
+): Result<Unit> {
+    val args = listOf(
+        "-v", "error",            // 只输出致命错误日志，避免污染管道
+        "-nostdin",               // 避免交互式控制台挂起
+        "-i", "pipe:0",           // 从标准输入读取待清洗音频流 (stdin)
+        "-map_metadata", "-1",    // 清洗脱敏：剥离设备与位置等元数据
+        "-vn",                    // 忽略视频流或内嵌封面
+        "-c:a", "aac",            // 转码为 AAC 以兼容 Android / Web / Safari
+        "-b:a", "48k",            // 语音清晰且体积小
+        "-ac", "1",               // 单声道
+        "-ar", "24000",           // 24kHz 采样率
+        "-movflags", "+frag_keyframe+empty_moov", // 支持向不可 seek 的 stdout pipe 流式写出 MP4/M4A
+        "-f", "mp4",              // 输出 MP4/M4A 容器
+        "pipe:1"                  // 从标准输出写出 M4A 字节流 (stdout)
+    )
+    return runFfmpegPipeCommand(args, doSendInput, doTransferData)
+}
+
+@OptIn(ExperimentalForeignApi::class)
+private suspend fun SuspendIo.runFfmpegPipeCommand(
+    args: List<String>,
+    doSendInput: suspend (AsyncSink) -> Unit,
+    doTransferData: suspend (AsyncSource) -> Unit,
 ): Result<Unit> = coroutineScope {
-    prepareFfmpegCommand().mapCatching { (pid, sink, source) ->
+    prepareFfmpegCommand(args).mapCatching { (pid, sink, source) ->
         val writeJob = launch {
             try {
                 doSendInput(sink)
@@ -56,24 +100,9 @@ private data class FfmpegCommand(
     val source: AsyncSource,
 )
 
-private suspend fun SuspendIo.prepareFfmpegCommand(): Result<FfmpegCommand> {
+private suspend fun SuspendIo.prepareFfmpegCommand(args: List<String>): Result<FfmpegCommand> {
     val (stdinRead, stdinWrite) = openPipe()
     val (stdoutRead, stdoutWrite) = openPipe()
-
-    // 核心 ffmpeg 命令及参数
-    val args = listOf(
-        "-v", "error",            // 只输出致命错误日志，避免污染管道
-        "-nostdin",               // 避免交互式控制台挂起
-        "-i", "pipe:0",           // 从标准输入读取待清洗图片流 (stdin)
-        "-map_metadata", "-1",    // 清洗脱敏：彻底剥离 GPS、相机型号等全部 EXIF 隐私
-        "-frames:v", "1",         // 只取第一帧，防止多帧/Gainmap/缩略图 JPEG 触发 image2 报错
-        "-vcodec", "libwebp",     // 转码为现代 WebP 格式
-        "-compression_level", "4",// 压缩率与 CPU 开销的黄金平衡点 (0-6)
-        "-q:v", "75",             // 视觉无损质量级别 (8MB -> ~200KB)
-        "-vf", "scale='min(2048,iw)':'min(2048,ih)':force_original_aspect_ratio=decrease", // 限制最大边不超 2048px，防像素爆炸
-        "-f", "image2",           // 输出到 pipe 时必须显式声明封装格式为单张图片流
-        "pipe:1"                  // 从标准输出写出 WebP 字节流 (stdout)
-    )
 
     val pid = posixSpawn("ffmpeg", args) {
         dup2(stdinRead, STDIN_FILENO)
