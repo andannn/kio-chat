@@ -665,13 +665,31 @@ private fun RoomContent(
                             }
                         }
 
+                        OutlinedTextField(
+                            value = message,
+                            onValueChange = onMessageChanged,
+                            modifier = Modifier.weight(1f),
+                            placeholder = { Text("输入消息…") },
+                            shape = MaterialTheme.shapes.extraLarge,
+                            maxLines = 4,
+                            trailingIcon = {
+                                IconButton(onClick = onSend) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.Send,
+                                        contentDescription = "发送",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                            },
+                        )
+
                         IconButton(
                             onClick = {
                                 photoPickerLauncher.launch(
                                     PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                                 )
                             },
-                            modifier = Modifier.padding(end = 2.dp)
+                            modifier = Modifier.padding(start = 4.dp)
                         ) {
                             Icon(
                                 Icons.Default.Image,
@@ -683,7 +701,7 @@ private fun RoomContent(
                         val currentVoiceCall by rememberUpdatedState(voiceCall)
                         Box(
                             modifier = Modifier
-                                .padding(end = 4.dp)
+                                .padding(start = 2.dp)
                                 .size(40.dp)
                                 .clip(CircleShape)
                                 .background(
@@ -765,24 +783,6 @@ private fun RoomContent(
                                 },
                             )
                         }
-
-                        OutlinedTextField(
-                            value = message,
-                            onValueChange = onMessageChanged,
-                            modifier = Modifier.weight(1f),
-                            placeholder = { Text("输入消息…") },
-                            shape = MaterialTheme.shapes.extraLarge,
-                            maxLines = 4,
-                            trailingIcon = {
-                                IconButton(onClick = onSend) {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.Send,
-                                        contentDescription = "发送",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                            },
-                        )
                     }
                 }
             }
