@@ -270,6 +270,29 @@ fun TagConsumer<*>.chatRoomContent(room: Room, isOwner: Boolean = false) {
                             raw("""<svg class="google-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M5 21q-.825 0-1.412-.587T3 19V5q0-.825.588-1.412T5 3h14q.825 0 1.413.588T21 5v14q0 .825-.587 1.413T19 21zm0-2h14V5H5zm1-2h12l-3.75-5-3 4L9 13.5zm-1 2V5z"/></svg>""")
                         }
                     }
+                    button(type = ButtonType.button, classes = "composer-image-button composer-voice-button") {
+                        id = "voice-record-button"
+                        attributes["aria-label"] = "录制语音"
+                        attributes["title"] = "点击开始/停止录音"
+                        attributes["data-upload-url"] = "$messagePath/voice"
+                        attributes["onclick"] = "window.toggleChatVoiceRecord && window.toggleChatVoiceRecord(this)"
+                        unsafe {
+                            raw("""<svg class="google-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 14q-1.25 0-2.125-.875T9 11V5q0-1.25.875-2.125T12 2t2.125.875T15 5v6q0 1.25-.875 2.125T12 14m-1 7v-3.075q-2.6-.35-4.3-2.325T5 11h2q0 2.075 1.463 3.538T12 16t3.538-1.462T17 11h2q0 2.625-1.7 4.6T13 17.925V21z"/></svg>""")
+                        }
+                    }
+                    div(classes = "voice-record-bar") {
+                        id = "voice-record-bar"
+                        hidden = true
+                        span(classes = "voice-record-dot") {}
+                        span(classes = "voice-record-status") {
+                            id = "voice-record-timer"
+                            +"正在录音 0:00"
+                        }
+                        button(type = ButtonType.button, classes = "voice-record-cancel") {
+                            attributes["onclick"] = "window.cancelChatVoiceRecord && window.cancelChatVoiceRecord()"
+                            +"取消"
+                        }
+                    }
                     textArea {
                         id = "content"
                         name = "content"

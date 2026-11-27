@@ -30,8 +30,27 @@ private fun ARTICLE.messageItem(message: Message, isMine: Boolean, roomId: Long)
                 }
             }
             is MessageExtra.Voice -> {
-                p(classes = "message-text") {
-                    +message.text
+                val seconds = ((extra.durationMs + 500L) / 1000L).coerceAtLeast(1L)
+                val widthPx = 140 + (seconds.coerceAtMost(30L).toInt() * 4)
+                div(classes = "message-voice") {
+                    attributes["data-voice-url"] = extra.url
+                    attributes["data-duration-ms"] = extra.durationMs.toString()
+                    attributes["style"] = "width: ${widthPx}px;"
+                    button(type = ButtonType.button, classes = "voice-play-button") {
+                        attributes["aria-label"] = "播放语音"
+                        attributes["onclick"] = "window.toggleChatVoice && window.toggleChatVoice(this)"
+                        unsafe {
+                            raw(
+                                """<svg class="voice-icon voice-icon-play" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.14v14l11-7z"/></svg><svg class="voice-icon voice-icon-pause" viewBox="0 0 24 24" fill="currentColor"><path d="M6 19h4V5H6zm8-14v14h4V5z"/></svg>"""
+                            )
+                        }
+                    }
+                    div(classes = "voice-track") {
+                        div(classes = "voice-progress") {}
+                    }
+                    span(classes = "voice-duration") {
+                        +"${seconds}\""
+                    }
                 }
             }
             null -> {

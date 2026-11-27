@@ -726,6 +726,83 @@ body {
     transform: scale(1.01);
 }
 
+/* 消息语音样式 */
+.message-voice {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 140px;
+    max-width: 260px;
+    padding: 4px 2px;
+}
+
+.voice-play-button {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--radius-full);
+    background: var(--primary-color);
+    color: #041e49;
+    cursor: pointer;
+    transition: background 150ms ease, transform 100ms ease;
+}
+
+.voice-play-button:hover {
+    background: var(--primary-hover);
+}
+
+.voice-play-button:active {
+    transform: scale(0.95);
+}
+
+.voice-icon {
+    width: 18px;
+    height: 18px;
+    display: block;
+}
+
+.voice-icon-pause {
+    display: none;
+}
+
+.message-voice.is-playing .voice-icon-play {
+    display: none;
+}
+
+.message-voice.is-playing .voice-icon-pause {
+    display: block;
+}
+
+.voice-track {
+    flex: 1;
+    height: 4px;
+    border-radius: var(--radius-full);
+    background: rgba(255, 255, 255, 0.2);
+    overflow: hidden;
+}
+
+.voice-progress {
+    width: 0%;
+    height: 100%;
+    border-radius: var(--radius-full);
+    background: var(--primary-color);
+    transition: width 120ms linear;
+}
+
+.voice-duration {
+    flex-shrink: 0;
+    min-width: 24px;
+    text-align: right;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    opacity: 0.9;
+}
+
 /* 消息悬浮菜单 */
 .message-menu {
     position: absolute;
@@ -929,6 +1006,70 @@ body {
 .composer-image-button:hover {
     background: var(--bg-surface-elevated);
     color: var(--primary-color);
+}
+
+.composer-voice-button.is-recording {
+    background: var(--danger-bg);
+    color: var(--danger-color);
+    animation: voice-pulse 1.2s ease-in-out infinite;
+}
+
+.composer-voice-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.voice-record-bar {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 36px;
+    padding: 0 6px;
+}
+
+.voice-record-bar[hidden] {
+    display: none;
+}
+
+.voice-record-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: var(--radius-full);
+    background: var(--danger-color);
+    animation: voice-pulse 1.2s ease-in-out infinite;
+}
+
+.voice-record-status {
+    flex: 1;
+    font-size: 14px;
+    color: var(--text-primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.voice-record-cancel {
+    padding: 4px 12px;
+    border: 1px solid var(--border-strong);
+    border-radius: var(--radius-full);
+    background: transparent;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 13px;
+    cursor: pointer;
+}
+
+.voice-record-cancel:hover {
+    background: var(--hover-bg);
+    color: var(--text-primary);
+}
+
+@keyframes voice-pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.45;
+    }
 }
 
 .composer-send-button {

@@ -16,6 +16,7 @@ fun TagConsumer<*>.chatHead(title: String) {
         script(src = Config.HTMX_MIN_JS) { }
         script(src = Config.HTMX_WS_JS) { }
         script(src = Config.APP_JS) { attributes["defer"] = "defer" }
+        script(src = Config.VOICE_JS) { attributes["defer"] = "defer" }
         script(src = Config.WEBRTC_JS) { attributes["defer"] = "defer" }
         link(rel = "stylesheet", href = Config.APP_CSS)
         title { +title }
