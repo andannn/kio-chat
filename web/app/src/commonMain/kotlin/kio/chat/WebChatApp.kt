@@ -118,7 +118,7 @@ private suspend fun CoroutineScope.setupServer(
                 val watchJob = with (repo) { startWatchingMessageEvent() }
                 httpServer(
                     serverSocket = serverSocket,
-                    loggingBackEnd = AsyncLoggingBackEnd(this, enableTrace = true),
+                    loggingBackEnd = AsyncLoggingBackEnd(this, enableTrace = false),
                     connectionWrapper = {
                         withServerTls(
                             env.tlsCert.pem,
