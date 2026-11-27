@@ -25,6 +25,7 @@ import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logger
 import io.ktor.client.plugins.logging.Logging
+import io.ktor.client.plugins.onUpload
 import io.ktor.client.request.accept
 import io.ktor.client.request.forms.submitForm
 import io.ktor.client.request.post
@@ -77,9 +78,24 @@ interface ChatService {
     suspend fun register(userName: String, password: String, confirmPassword: String, nickname: String): ApiResult<Unit>
     suspend fun login(userName: String, password: String): ApiResult<Unit>
     suspend fun sendMessage(roomId: Long, content: String): ApiResult<Unit>
-    suspend fun sendImageMessage(roomId: Long, imageBytes: ByteArray, width: Int, height: Int): ApiResult<Unit>
-    suspend fun sendVoiceChatMessage(roomId: Long, voiceBytes: ByteArray, durationMs: Long): ApiResult<Unit>
-    suspend fun sendFileMessage(roomId: Long, uri: Uri): ApiResult<Unit>
+    suspend fun sendImageMessage(
+        roomId: Long,
+        imageBytes: ByteArray,
+        width: Int,
+        height: Int,
+        onProgress: (bytesSentTotal: Long, contentLength: Long?) -> Unit = { _, _ -> },
+    ): ApiResult<Unit>
+    suspend fun sendVoiceChatMessage(
+        roomId: Long,
+        voiceBytes: ByteArray,
+        durationMs: Long,
+        onProgress: (bytesSentTotal: Long, contentLength: Long?) -> Unit = { _, _ -> },
+    ): ApiResult<Unit>
+    suspend fun sendFileMessage(
+        roomId: Long,
+        uri: Uri,
+        onProgress: (bytesSentTotal: Long, contentLength: Long?) -> Unit = { _, _ -> },
+    ): ApiResult<Unit>
     suspend fun updateMessage(roomId: Long, messageId: Long, content: String): ApiResult<Unit>
     suspend fun deleteMessage(roomId: Long, messageId: Long): ApiResult<Unit>
     suspend fun getMessageHistory(roomId: Long, beforeId: Long): ApiResult<MessagePage>
@@ -111,6 +127,7 @@ fun createHttpClient(): HttpClient =
         engine {
             config {
                 connectTimeout(10, TimeUnit.SECONDS)
+                pingInterval(20, TimeUnit.SECONDS)
             }
         }
 
@@ -210,6 +227,7 @@ class ChatServiceImpl(
         imageBytes: ByteArray,
         width: Int,
         height: Int,
+        onProgress: (bytesSentTotal: Long, contentLength: Long?) -> Unit,
     ): ApiResult<Unit> = tryGetResult {
         httpClient.submitFormWithBinaryData(
             url = "/rooms/$roomId/messages/image",
@@ -221,13 +239,18 @@ class ChatServiceImpl(
                     append(HttpHeaders.ContentDisposition, "filename=\"image.jpg\"")
                 })
             }
-        )
+        ) {
+            onUpload { bytesSentTotal, contentLength ->
+                onProgress(bytesSentTotal, contentLength)
+            }
+        }
     }
 
     override suspend fun sendVoiceChatMessage(
         roomId: Long,
         voiceBytes: ByteArray,
         durationMs: Long,
+        onProgress: (bytesSentTotal: Long, contentLength: Long?) -> Unit,
     ): ApiResult<Unit> = tryGetResult {
         httpClient.submitFormWithBinaryData(
             url = "/rooms/$roomId/messages/voice",
@@ -238,10 +261,18 @@ class ChatServiceImpl(
                     append(HttpHeaders.ContentDisposition, "filename=\"voice.m4a\"")
                 })
             }
-        )
+        ) {
+            onUpload { bytesSentTotal, contentLength ->
+                onProgress(bytesSentTotal, contentLength)
+            }
+        }
     }
 
-    override suspend fun sendFileMessage(roomId: Long, uri: Uri): ApiResult<Unit> = tryGetResult {
+    override suspend fun sendFileMessage(
+        roomId: Long,
+        uri: Uri,
+        onProgress: (bytesSentTotal: Long, contentLength: Long?) -> Unit,
+    ): ApiResult<Unit> = tryGetResult {
         val resolver = context.contentResolver
         val (fileName, fileSize, mimeType) = resolver.queryFileMetadata(uri)
         if (fileSize == 0L) {
@@ -261,7 +292,11 @@ class ChatServiceImpl(
                     },
                 )
             }
-        )
+        ) {
+            onUpload { bytesSentTotal, contentLength ->
+                onProgress(bytesSentTotal, contentLength)
+            }
+        }
     }
 
     override suspend fun updateMessage(roomId: Long, messageId: Long, content: String): ApiResult<Unit> = tryGetResult {

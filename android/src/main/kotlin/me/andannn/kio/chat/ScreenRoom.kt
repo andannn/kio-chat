@@ -24,11 +24,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -64,10 +72,12 @@ import kio.chat.domain.MessageExtra
 import kio.chat.domain.Room
 import kio.chat.domain.RoomMember
 import kio.chat.domain.UserChatEvent
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.Flow
@@ -76,11 +86,13 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.onSubscription
+import kotlinx.coroutines.flow.update
 import me.andannn.kio.chat.util.LocalSnackBarController
 import me.andannn.kio.chat.util.SnackBarController
 import me.andannn.kio.chat.util.VoiceMessagePlayer
 import me.andannn.kio.chat.util.VoicePlaybackState
 import me.andannn.kio.chat.util.VoiceRecorder
+import me.andannn.kio.chat.util.queryFileMetadata
 import me.andannn.kio.chat.util.rememberAndSetupSnackBarHostState
 import org.koin.mp.KoinPlatform.getKoin
 import me.andannn.kio.chat.util.Presenter
@@ -89,6 +101,7 @@ import me.andannn.kio.chat.util.retainPresenter
 import me.andannn.kio.chat.util.stateInRetainedModel
 import me.andannn.kio.chat.widget.UserAvatar
 import me.andannn.kio.chat.widget.VoiceCallBubble
+import me.andannn.kio.chat.widget.ImagePreviewDialog
 import me.andannn.kio.chat.widget.MessageItem
 import androidx.core.net.toUri
 
@@ -128,9 +141,17 @@ sealed interface RoomUiEvent {
     data object OnMicrophoneDenied : RoomUiEvent
     data class OnSendImage(val bytes: ByteArray, val width: Int, val height: Int) : RoomUiEvent
     data class OnSendVoice(val bytes: ByteArray, val durationMs: Long) : RoomUiEvent
-    data class OnSendFile(val uri: Uri) : RoomUiEvent
+    data class OnSendFile(val uri: Uri, val fileName: String) : RoomUiEvent
+    data class OnCancelUpload(val uploadId: Long) : RoomUiEvent
     data class OnShowNotice(val message: String) : RoomUiEvent
 }
+
+private data class UploadProgress(
+    val id: Long,
+    val label: String,
+    val bytesSent: Long = 0L,
+    val contentLength: Long? = null,
+)
 
 private data class RoomLayoutState(
     val room: Room,
@@ -143,6 +164,7 @@ private data class RoomLayoutState(
     val voiceParticipants: List<RoomMember> = emptyList(),
     val voiceCall: VoiceCallState = VoiceCallState(),
     val isVoiceBusy: Boolean = false,
+    val activeUploads: List<UploadProgress> = emptyList(),
     val eventSink: (RoomUiEvent) -> Unit = {},
 )
 
@@ -179,6 +201,9 @@ private class RoomLayoutPresenter(
         .stateInRetainedModel(emptyList())
 
     private var isVoiceBusy by mutableStateOf(false)
+    private val activeUploadsFlow = MutableStateFlow<List<UploadProgress>>(emptyList())
+    private val uploadJobs = mutableMapOf<Long, Job>()
+    private var nextUploadId = 1L
 
     init {
         context(rootNavigator, snackBarController) {
@@ -270,32 +295,58 @@ private class RoomLayoutPresenter(
     }
 
     context(_: RootNavigator, _: SnackBarController)
-    private fun sendImage(bytes: ByteArray, width: Int, height: Int) {
-        retainedScope.launch {
-            val (_, error) = service.sendImageMessage(roomId, bytes, width, height)
-            if (error != null) {
-                handleError(error)
+    private fun launchUpload(
+        label: String,
+        block: suspend (onProgress: (Long, Long?) -> Unit) -> ApiResult<Unit>,
+    ) {
+        val uploadId = nextUploadId++
+        activeUploadsFlow.update { it + UploadProgress(id = uploadId, label = label) }
+        val job = retainedScope.launch {
+            try {
+                val (_, error) = block { sent, total ->
+                    activeUploadsFlow.update { list ->
+                        list.map { item ->
+                            if (item.id == uploadId) {
+                                item.copy(bytesSent = sent, contentLength = total)
+                            } else {
+                                item
+                            }
+                        }
+                    }
+                }
+                if (error != null) {
+                    handleError(error)
+                }
+            } finally {
+                uploadJobs.remove(uploadId)
+                activeUploadsFlow.update { list -> list.filterNot { it.id == uploadId } }
             }
+        }
+        uploadJobs[uploadId] = job
+    }
+
+    private fun cancelUpload(uploadId: Long) {
+        uploadJobs.remove(uploadId)?.cancel()
+    }
+
+    context(_: RootNavigator, _: SnackBarController)
+    private fun sendImage(bytes: ByteArray, width: Int, height: Int) {
+        launchUpload("图片") { onProgress ->
+            service.sendImageMessage(roomId, bytes, width, height, onProgress)
         }
     }
 
     context(_: RootNavigator, _: SnackBarController)
     private fun sendVoice(bytes: ByteArray, durationMs: Long) {
-        retainedScope.launch {
-            val (_, error) = service.sendVoiceChatMessage(roomId, bytes, durationMs)
-            if (error != null) {
-                handleError(error)
-            }
+        launchUpload("语音") { onProgress ->
+            service.sendVoiceChatMessage(roomId, bytes, durationMs, onProgress)
         }
     }
 
     context(_: RootNavigator, _: SnackBarController)
-    private fun sendFile(uri: Uri) {
-        retainedScope.launch {
-            val (_, error) = service.sendFileMessage(roomId, uri)
-            if (error != null) {
-                handleError(error)
-            }
+    private fun sendFile(uri: Uri, fileName: String) {
+        launchUpload(fileName.ifBlank { "文件" }) { onProgress ->
+            service.sendFileMessage(roomId, uri, onProgress)
         }
     }
 
@@ -322,6 +373,7 @@ private class RoomLayoutPresenter(
         val roomState by roomFlow.collectAsStateWithLifecycle()
         val voiceCall by voiceRepository.callState.collectAsStateWithLifecycle()
         val voiceParticipants by voiceParticipantsFlow.collectAsStateWithLifecycle()
+        val activeUploads by activeUploadsFlow.collectAsStateWithLifecycle()
         context(rootNavigator, snackBarController) {
             return RoomLayoutState(
                 room = roomState,
@@ -334,6 +386,7 @@ private class RoomLayoutPresenter(
                 voiceParticipants = voiceParticipants,
                 voiceCall = voiceCall,
                 isVoiceBusy = isVoiceBusy,
+                activeUploads = activeUploads,
             ) { event ->
                 when (event) {
                     is RoomUiEvent.OnMessageChanged -> currentInput = event.value
@@ -345,7 +398,8 @@ private class RoomLayoutPresenter(
                     RoomUiEvent.OnSendClick -> sendMessage()
                     is RoomUiEvent.OnSendImage -> sendImage(event.bytes, event.width, event.height)
                     is RoomUiEvent.OnSendVoice -> sendVoice(event.bytes, event.durationMs)
-                    is RoomUiEvent.OnSendFile -> sendFile(event.uri)
+                    is RoomUiEvent.OnSendFile -> sendFile(event.uri, event.fileName)
+                    is RoomUiEvent.OnCancelUpload -> cancelUpload(event.uploadId)
                     is RoomUiEvent.OnShowNotice -> retainedScope.launch {
                         handleError(ApiError.ServerError(event.message))
                     }
@@ -457,7 +511,9 @@ private fun RoomUi(
         onToggleMuted = { state.eventSink(RoomUiEvent.OnToggleMuted) },
         onSendImage = { bytes, w, h -> state.eventSink(RoomUiEvent.OnSendImage(bytes, w, h)) },
         onSendVoice = { bytes, durationMs -> state.eventSink(RoomUiEvent.OnSendVoice(bytes, durationMs)) },
-        onSendFile = { uri -> state.eventSink(RoomUiEvent.OnSendFile(uri)) },
+        onSendFile = { uri, fileName -> state.eventSink(RoomUiEvent.OnSendFile(uri, fileName)) },
+        activeUploads = state.activeUploads,
+        onCancelUpload = { uploadId -> state.eventSink(RoomUiEvent.OnCancelUpload(uploadId)) },
         onOpenFile = { file ->
             enqueueOrOpenFileDownload(
                 context = context,
@@ -492,7 +548,9 @@ private fun RoomContent(
     onSend: () -> Unit = {},
     onSendImage: (ByteArray, Int, Int) -> Unit = { _, _, _ -> },
     onSendVoice: (ByteArray, Long) -> Unit = { _, _ -> },
-    onSendFile: (Uri) -> Unit = {},
+    onSendFile: (Uri, String) -> Unit = { _, _ -> },
+    activeUploads: List<UploadProgress> = emptyList(),
+    onCancelUpload: (Long) -> Unit = {},
     onOpenFile: (MessageExtra.File) -> Unit = {},
     onRequestRecordAudioPermission: () -> Unit = {},
     onShowNotice: (String) -> Unit = {},
@@ -510,6 +568,15 @@ private fun RoomContent(
     onLeaveVoice: () -> Unit = {},
     onToggleMuted: () -> Unit = {},
 ) {
+    var previewImageUrl by remember { mutableStateOf<String?>(null) }
+
+    if (previewImageUrl != null) {
+        ImagePreviewDialog(
+            imageUrl = previewImageUrl!!,
+            onDismiss = { previewImageUrl = null },
+        )
+    }
+
     Scaffold(
         modifier = modifier,
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) },
@@ -525,7 +592,21 @@ private fun RoomContent(
                         )
                     }
                 },
-                actions = { TextButton(onClick = onSettingClick) { Text("设置") } },
+                actions = {
+                    val showVoiceCallBanner = voiceParticipants.isNotEmpty() || voiceCall.roomId == room.id
+                    if (!showVoiceCallBanner) {
+                        IconButton(
+                            onClick = onJoinVoice,
+                            enabled = !isVoiceBusy,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Call,
+                                contentDescription = "发起语音通话",
+                            )
+                        }
+                    }
+                    TextButton(onClick = onSettingClick) { Text("设置") }
+                },
                 navigationIcon = {
                     IconButton(onClick = {
                         onBack()
@@ -546,17 +627,6 @@ private fun RoomContent(
                         .windowInsetsPadding(BottomAppBarDefaults.windowInsets.union(WindowInsets.ime))
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                 ) {
-                    // 语音通话常驻气泡面板（统一承载通话状态、成员列表、静音、开启与挂断功能）
-                    VoiceCallBubble(
-                        roomId = room.id,
-                        participants = voiceParticipants,
-                        call = voiceCall,
-                        isBusy = isVoiceBusy,
-                        onToggleMuted = onToggleMuted,
-                        onJoinVoice = onJoinVoice,
-                        onLeaveVoice = onLeaveVoice,
-                        modifier = Modifier.padding(bottom = 8.dp),
-                    )
                     var isRecordingVoice by remember { mutableStateOf(false) }
                     var isCancellingVoice by remember { mutableStateOf(false) }
                     var recordingElapsedMs by remember { mutableLongStateOf(0L) }
@@ -579,6 +649,26 @@ private fun RoomContent(
                                 break
                             }
                             delay(200L)
+                        }
+                    }
+
+                    AnimatedVisibility(
+                        visible = activeUploads.isNotEmpty(),
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically(),
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            activeUploads.forEach { upload ->
+                                UploadProgressBanner(
+                                    upload = upload,
+                                    onCancel = { onCancelUpload(upload.id) },
+                                )
+                            }
                         }
                     }
 
@@ -649,10 +739,13 @@ private fun RoomContent(
                     Row(
                         modifier = Modifier.padding(top = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
                         val context = LocalContext.current
                         val haptics = LocalHapticFeedback.current
                         val cancelDragThresholdPx = with(LocalDensity.current) { 60.dp.toPx() }
+                        var showAttachmentMenu by remember { mutableStateOf(false) }
+
                         val photoPickerLauncher = rememberLauncherForActivityResult(
                             contract = ActivityResultContracts.PickVisualMedia()
                         ) { uri: Uri? ->
@@ -678,143 +771,197 @@ private fun RoomContent(
                             }
                         }
 
-                        OutlinedTextField(
-                            value = message,
-                            onValueChange = onMessageChanged,
-                            modifier = Modifier.weight(1f),
-                            placeholder = { Text("输入消息…") },
-                            shape = MaterialTheme.shapes.extraLarge,
-                            maxLines = 4,
-                            trailingIcon = {
-                                IconButton(onClick = onSend) {
-                                    Icon(
-                                        Icons.AutoMirrored.Filled.Send,
-                                        contentDescription = "发送",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                            },
-                        )
-
                         val filePickerLauncher = rememberLauncherForActivityResult(
                             contract = ActivityResultContracts.OpenDocument()
                         ) { uri: Uri? ->
                             if (uri != null) {
-                                onSendFile(uri)
+                                val fileName = try {
+                                    context.contentResolver.queryFileMetadata(uri).first
+                                } catch (_: Exception) {
+                                    "文件"
+                                }
+                                onSendFile(uri, fileName)
                             }
                         }
 
-                        IconButton(
-                            onClick = {
-                                photoPickerLauncher.launch(
-                                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                        Box {
+                            IconButton(onClick = { showAttachmentMenu = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "更多操作",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
-                            },
-                            modifier = Modifier.padding(start = 4.dp)
-                        ) {
-                            Icon(
-                                Icons.Default.Image,
-                                contentDescription = "发送图片",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+                            }
+                            DropdownMenu(
+                                expanded = showAttachmentMenu,
+                                onDismissRequest = { showAttachmentMenu = false },
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("发送图片") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Image,
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    onClick = {
+                                        showAttachmentMenu = false
+                                        photoPickerLauncher.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("发送文件") },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.AttachFile,
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    onClick = {
+                                        showAttachmentMenu = false
+                                        filePickerLauncher.launch(arrayOf("*/*"))
+                                    },
+                                )
+                            }
                         }
 
-                        IconButton(
-                            onClick = {
-                                filePickerLauncher.launch(arrayOf("*/*"))
-                            },
-                        ) {
-                            Icon(
-                                Icons.Default.AttachFile,
-                                contentDescription = "发送文件",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-
-                        val currentVoiceCall by rememberUpdatedState(voiceCall)
-                        Box(
+                        val interactionSource = remember { MutableInteractionSource() }
+                        val textFieldColors = OutlinedTextFieldDefaults.colors()
+                        BasicTextField(
+                            value = message,
+                            onValueChange = onMessageChanged,
                             modifier = Modifier
-                                .padding(start = 2.dp)
-                                .size(40.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    when {
-                                        isCancellingVoice -> MaterialTheme.colorScheme.errorContainer
-                                        isRecordingVoice -> MaterialTheme.colorScheme.primaryContainer
-                                        else -> Color.Transparent
-                                    }
+                                .weight(1f)
+                                .defaultMinSize(minHeight = 40.dp),
+                            maxLines = 4,
+                            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                                color = MaterialTheme.colorScheme.onSurface,
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            interactionSource = interactionSource,
+                            decorationBox = { innerTextField ->
+                                OutlinedTextFieldDefaults.DecorationBox(
+                                    value = message,
+                                    innerTextField = innerTextField,
+                                    enabled = true,
+                                    singleLine = false,
+                                    visualTransformation = VisualTransformation.None,
+                                    interactionSource = interactionSource,
+                                    placeholder = { Text("输入消息…") },
+                                    colors = textFieldColors,
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                                    container = {
+                                        OutlinedTextFieldDefaults.Container(
+                                            enabled = true,
+                                            isError = false,
+                                            interactionSource = interactionSource,
+                                            colors = textFieldColors,
+                                            shape = MaterialTheme.shapes.extraLarge,
+                                        )
+                                    },
                                 )
-                                .pointerInput(voiceRecorder) {
-                                    awaitEachGesture {
-                                        val down = awaitFirstDown(requireUnconsumed = false)
-                                        if (voiceRecorder == null) return@awaitEachGesture
-                                        val hasMicPermission = context.checkSelfPermission(
-                                            Manifest.permission.RECORD_AUDIO
-                                        ) == PackageManager.PERMISSION_GRANTED
-                                        if (!hasMicPermission) {
-                                            onRequestRecordAudioPermission()
-                                            return@awaitEachGesture
-                                        }
-                                        if (currentVoiceCall.roomId != null) {
-                                            onShowNotice("语音通话中暂不支持录制语音消息。")
-                                            return@awaitEachGesture
-                                        }
-                                        if (!voiceRecorder.start()) {
-                                            onShowNotice("无法启动录音，请检查麦克风是否被占用。")
-                                            return@awaitEachGesture
-                                        }
+                            },
+                        )
 
-                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        isRecordingVoice = true
-                                        isCancellingVoice = false
-                                        val startY = down.position.y
-                                        var finishedNormally = false
-
-                                        try {
-                                            while (true) {
-                                                val event = awaitPointerEvent()
-                                                val change = event.changes.firstOrNull { it.id == down.id }
-                                                    ?: event.changes.firstOrNull()
-                                                if (change == null || !change.pressed) {
-                                                    finishedNormally = true
-                                                    break
-                                                }
-                                                change.consume()
-                                                isCancellingVoice = (startY - change.position.y) > cancelDragThresholdPx
+                        if (message.isNotBlank()) {
+                            FilledIconButton(
+                                onClick = onSend,
+                                modifier = Modifier.size(40.dp),
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.Send,
+                                    contentDescription = "发送",
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        } else {
+                            val currentVoiceCall by rememberUpdatedState(voiceCall)
+                            Box(
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        when {
+                                            isCancellingVoice -> MaterialTheme.colorScheme.errorContainer
+                                            isRecordingVoice -> MaterialTheme.colorScheme.primaryContainer
+                                            else -> MaterialTheme.colorScheme.secondaryContainer
+                                        }
+                                    )
+                                    .pointerInput(voiceRecorder) {
+                                        awaitEachGesture {
+                                            val down = awaitFirstDown(requireUnconsumed = false)
+                                            if (voiceRecorder == null) return@awaitEachGesture
+                                            val hasMicPermission = context.checkSelfPermission(
+                                                Manifest.permission.RECORD_AUDIO
+                                            ) == PackageManager.PERMISSION_GRANTED
+                                            if (!hasMicPermission) {
+                                                onRequestRecordAudioPermission()
+                                                return@awaitEachGesture
                                             }
-                                        } finally {
-                                            val shouldCancel = !finishedNormally || isCancellingVoice
-                                            val wasStillRecording = isRecordingVoice
-                                            isRecordingVoice = false
+                                            if (currentVoiceCall.roomId != null) {
+                                                onShowNotice("语音通话中暂不支持录制语音消息。")
+                                                return@awaitEachGesture
+                                            }
+                                            if (!voiceRecorder.start()) {
+                                                onShowNotice("无法启动录音，请检查麦克风是否被占用。")
+                                                return@awaitEachGesture
+                                            }
+
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            isRecordingVoice = true
                                             isCancellingVoice = false
-                                            if (wasStillRecording) {
-                                                if (shouldCancel) {
-                                                    voiceRecorder.cancel()
-                                                } else {
-                                                    val recorded = voiceRecorder.stop()
-                                                    if (recorded != null) {
-                                                        if (recorded.durationMs < 500L) {
-                                                            onShowNotice("录音时间太短。")
-                                                        } else {
-                                                            onSendVoice(recorded.bytes, recorded.durationMs)
+                                            val startY = down.position.y
+                                            var finishedNormally = false
+
+                                            try {
+                                                while (true) {
+                                                    val event = awaitPointerEvent()
+                                                    val change = event.changes.firstOrNull { it.id == down.id }
+                                                        ?: event.changes.firstOrNull()
+                                                    if (change == null || !change.pressed) {
+                                                        finishedNormally = true
+                                                        break
+                                                    }
+                                                    change.consume()
+                                                    isCancellingVoice = (startY - change.position.y) > cancelDragThresholdPx
+                                                }
+                                            } finally {
+                                                val shouldCancel = !finishedNormally || isCancellingVoice
+                                                val wasStillRecording = isRecordingVoice
+                                                isRecordingVoice = false
+                                                isCancellingVoice = false
+                                                if (wasStillRecording) {
+                                                    if (shouldCancel) {
+                                                        voiceRecorder.cancel()
+                                                    } else {
+                                                        val recorded = voiceRecorder.stop()
+                                                        if (recorded != null) {
+                                                            if (recorded.durationMs < 500L) {
+                                                                onShowNotice("录音时间太短。")
+                                                            } else {
+                                                                onSendVoice(recorded.bytes, recorded.durationMs)
+                                                            }
                                                         }
                                                     }
                                                 }
                                             }
                                         }
-                                    }
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Mic,
-                                contentDescription = "长按录制语音",
-                                tint = when {
-                                    isCancellingVoice -> MaterialTheme.colorScheme.error
-                                    isRecordingVoice -> MaterialTheme.colorScheme.primary
-                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                            )
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Mic,
+                                    contentDescription = "长按录制语音",
+                                    modifier = Modifier.size(20.dp),
+                                    tint = when {
+                                        isCancellingVoice -> MaterialTheme.colorScheme.error
+                                        isRecordingVoice -> MaterialTheme.colorScheme.primary
+                                        else -> MaterialTheme.colorScheme.onSecondaryContainer
+                                    },
+                                )
+                            }
                         }
                     }
                 }
@@ -825,6 +972,24 @@ private fun RoomContent(
             .fillMaxSize()
             .padding(padding)
             .consumeWindowInsets(padding)) {
+            val showVoiceCallBanner = voiceParticipants.isNotEmpty() || voiceCall.roomId == room.id
+            AnimatedVisibility(
+                visible = showVoiceCallBanner,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
+            ) {
+                // 语音通话面板：有人在通话或自己已加入时在顶部展开
+                VoiceCallBubble(
+                    roomId = room.id,
+                    participants = voiceParticipants,
+                    call = voiceCall,
+                    isBusy = isVoiceBusy,
+                    onToggleMuted = onToggleMuted,
+                    onJoinVoice = onJoinVoice,
+                    onLeaveVoice = onLeaveVoice,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                )
+            }
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -843,6 +1008,9 @@ private fun RoomContent(
                         voicePlayback = voicePlayback,
                         onToggleVoice = onToggleVoice,
                         onOpenFile = onOpenFile,
+                        onImageClick = { extra ->
+                            previewImageUrl = "${BuildConfig.BASE_URL}/${extra.url.trimStart('/')}"
+                        },
                         onDelete = { onDeleteMessage(message.id) },
                         onEdit = { onUpdateMessage(message.id, it) },
                     )
@@ -888,5 +1056,70 @@ private fun Context.getMissingVoiceCallPermissions(): List<String> = buildList {
         checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
     ) {
         add(Manifest.permission.BLUETOOTH_CONNECT)
+    }
+}
+
+@Composable
+private fun UploadProgressBanner(
+    upload: UploadProgress,
+    onCancel: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val total = upload.contentLength
+    val progress = if (total != null && total > 0L) {
+        (upload.bytesSent.toFloat() / total.toFloat()).coerceIn(0f, 1f)
+    } else {
+        null
+    }
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer,
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = "正在发送 ${upload.label}",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    text = if (progress != null) "${(progress * 100).toInt()}%" else "上传中…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f),
+                )
+                IconButton(
+                    onClick = onCancel,
+                    modifier = Modifier.size(24.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "取消上传",
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+            if (progress != null) {
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                LinearProgressIndicator(
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
     }
 }

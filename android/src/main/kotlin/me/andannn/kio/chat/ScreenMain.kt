@@ -44,12 +44,17 @@ import androidx.navigation3.scene.SinglePaneSceneStrategy
 import androidx.navigation3.ui.NavDisplay
 import kio.chat.domain.Room
 import kio.chat.domain.RoomMember
+import kio.chat.domain.WebSocketSessionReady
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.time.Duration.Companion.seconds
 import me.andannn.kio.chat.util.Presenter
 import me.andannn.kio.chat.util.RetainedPresenter
 import me.andannn.kio.chat.util.rememberRetainedValueStoreNavEntryDecorator
@@ -67,11 +72,12 @@ fun EntryProviderScope<NavKey>.mainEntry(rootNavigator: RootNavigator) {
 
 @Composable
 private fun retainMainState(
+    rootNavigator: RootNavigator,
     voiceRepository: VoiceCallRepository = getKoin().get(),
     eventSource: UserEventSource = getKoin().get(),
     userRepository: UserRepository = getKoin().get(),
-) = retainPresenter(voiceRepository, eventSource, userRepository) {
-    MainLayoutPresenter(voiceRepository, eventSource, userRepository)
+) = retainPresenter(rootNavigator, voiceRepository, eventSource, userRepository) {
+    MainLayoutPresenter(rootNavigator, voiceRepository, eventSource, userRepository)
 }
 
 private data class MainLayoutState(
@@ -85,6 +91,7 @@ private data class MainLayoutState(
 )
 
 private class MainLayoutPresenter(
+    private val rootNavigator: RootNavigator,
     private val voiceRepository: VoiceCallRepository,
     eventSource: UserEventSource,
     private val userRepository: UserRepository,
@@ -110,14 +117,26 @@ private class MainLayoutPresenter(
         // Subscribe before opening the socket so initial events have consumers.
         val voiceJob = with(voiceRepository) { retainedScope.startObservingEvents() }
         retainedScope.launch {
+            eventSource.events
+                .filterIsInstance<WebSocketSessionReady>()
+                .collect { connected = true }
+        }
+        retainedScope.launch {
             try {
-                eventSource.observe()
+                while (isActive) {
+                    val error = eventSource.observe()
+                    connected = false
+                    if (error == ApiError.AuthenticationError) {
+                        rootNavigator.clearTopAndGoToLogin()
+                        break
+                    }
+                    delay(3.seconds)
+                }
             } finally {
                 withContext(NonCancellable) {
                     voiceJob.cancelAndJoin()
                 }
             }
-            connected = false
         }
     }
 
@@ -165,7 +184,7 @@ private class MainLayoutPresenter(
 private fun MainScreen(
     rootNavigator: RootNavigator,
     modifier: Modifier = Modifier,
-    presenter: Presenter<MainLayoutState> = retainMainState(),
+    presenter: Presenter<MainLayoutState> = retainMainState(rootNavigator),
 ) {
     val state = presenter.present()
     Box(modifier) {
@@ -206,7 +225,7 @@ private fun MainContent(rootNavigator: RootNavigator, modifier: Modifier = Modif
                     ) {
                         Icon(Icons.Filled.CloudOff, contentDescription = null)
                         Column {
-                            Text("连接已断开", style = MaterialTheme.typography.titleSmall)
+                            Text("连接已断开，正在重连...", style = MaterialTheme.typography.titleSmall)
                             Text("消息和通话暂不可用", style = MaterialTheme.typography.bodySmall)
                         }
                     }

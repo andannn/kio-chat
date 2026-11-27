@@ -75,6 +75,7 @@ internal fun MessageItem(
     voicePlayback: VoicePlaybackState = VoicePlaybackState(),
     onToggleVoice: (MessageExtra.Voice) -> Unit = {},
     onOpenFile: (MessageExtra.File) -> Unit = {},
+    onImageClick: (MessageExtra.Image) -> Unit = {},
     onDelete: () -> Unit = {},
     onEdit: (String) -> Unit = {},
 ) {
@@ -151,6 +152,7 @@ internal fun MessageItem(
                     voicePlayback = voicePlayback,
                     onToggleVoice = onToggleVoice,
                     onOpenFile = onOpenFile,
+                    onImageClick = onImageClick,
                     onLongClick = { showActions = true },
                 )
             }
@@ -312,6 +314,7 @@ private fun MessageBubble(
     voicePlayback: VoicePlaybackState,
     onToggleVoice: (MessageExtra.Voice) -> Unit,
     onOpenFile: (MessageExtra.File) -> Unit,
+    onImageClick: (MessageExtra.Image) -> Unit,
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -344,7 +347,13 @@ private fun MessageBubble(
                 is MessageExtra.Image -> MessageImageContent(
                     extra = extra,
                     isMine = isMine,
-                    modifier = longPressModifier,
+                    onClick = { onImageClick(extra) },
+                    onLongClick = if (isMine) {
+                        {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onLongClick()
+                        }
+                    } else null,
                 )
                 is MessageExtra.Voice -> MessageVoiceContent(
                     extra = extra,
@@ -462,12 +471,20 @@ private fun MessageVoiceContent(
 private fun MessageImageContent(
     extra: MessageExtra.Image,
     isMine: Boolean,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
     val fullUrl = "${BuildConfig.BASE_URL}/${extra.url.trimStart('/')}"
     val ratio = if (extra.width > 0 && extra.height > 0) {
         extra.width.toFloat() / extra.height.toFloat()
     } else 1f
+    val shape = RoundedCornerShape(
+        topStart = if (isMine) 16.dp else 4.dp,
+        topEnd = if (isMine) 4.dp else 16.dp,
+        bottomStart = 16.dp,
+        bottomEnd = 16.dp,
+    )
 
     AsyncImage(
         model = fullUrl,
@@ -476,13 +493,11 @@ private fun MessageImageContent(
             .widthIn(max = 240.dp)
             .heightIn(max = 320.dp)
             .aspectRatio(ratio)
-            .clip(
-                RoundedCornerShape(
-                    topStart = if (isMine) 16.dp else 4.dp,
-                    topEnd = if (isMine) 4.dp else 16.dp,
-                    bottomStart = 16.dp,
-                    bottomEnd = 16.dp,
-                )
+            .clip(shape)
+            .combinedClickable(
+                onClick = onClick,
+                onLongClickLabel = if (onLongClick != null) "消息操作" else null,
+                onLongClick = onLongClick,
             ),
         contentScale = ContentScale.Crop,
     )
