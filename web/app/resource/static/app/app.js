@@ -57,6 +57,35 @@ window.handleChatImageUpload = function(input) {
     input.value = "";
 };
 
+window.sendChatFile = function(file, uploadUrl) {
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file, file.name);
+
+    fetch(uploadUrl, {
+        method: "POST",
+        body: formData,
+    }).then(async (res) => {
+        if (!res.ok) {
+            const msg = await res.text().catch(() => "");
+            alert(msg || "发送文件失败，请重试。");
+        }
+    }).catch((err) => {
+        console.error("Failed to upload file", err);
+        alert("发送文件失败，请重试。");
+    });
+};
+
+window.handleChatFileUpload = function(input) {
+    const file = input.files?.[0];
+    const uploadUrl = input.getAttribute("data-upload-url");
+    if (file && uploadUrl) {
+        window.sendChatFile(file, uploadUrl);
+    }
+    input.value = "";
+};
+
 // 支持直接在输入框粘贴图片发送
 document.addEventListener("paste", (event) => {
     const items = event.clipboardData?.items;

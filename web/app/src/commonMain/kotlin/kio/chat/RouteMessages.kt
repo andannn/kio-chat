@@ -29,6 +29,7 @@ fun Route.messagesRoute() {
         post { call -> call.handleNewTestMessage() }
         post("image") { call -> call.handleNewImageMessage() }
         post("voice") { call -> call.handleNewVoiceMessage() }
+        post("file") { call -> call.handleNewFileMessage() }
         get { call -> call.handleGetMessageHistory() }
 
         route("/{id}") {
@@ -245,6 +246,97 @@ private suspend fun CallContext.handleNewVoiceMessage() {
     currentLogger().info("[voice] upload room=$roomId durationMs=$resolvedDurationMs size=$savedSize multipartMs=$multipartMs transcodeMs=$transcodeMs dbMs=$dbMs totalMs=$totalMs")
 
     respond(HttpStatusCode.OK)
+}
+
+context(repo: Repository)
+private suspend fun CallContext.handleNewFileMessage() {
+    val totalStart = TimeSource.Monotonic.markNow()
+    val multipartStart = TimeSource.Monotonic.markNow()
+    val reader = receiveMultipart()
+    var fileSource: AsyncSource? = null
+    var rawFilename: String? = null
+    var mimeType: String? = null
+
+    while (true) {
+        val part = reader.nextPart() ?: break
+        if (part.contentDisposition?.name == "file") {
+            rawFilename = part.contentDisposition?.parameter(ContentDisposition.Parameters.FileName)
+            mimeType = part.headers[HttpHeaders.ContentType]?.substringBefore(';')?.trim()?.takeIf { it.isNotEmpty() }
+            fileSource = part.body.buffered()
+            break
+        }
+    }
+
+    val multipartMs = multipartStart.elapsedNow().inWholeMilliseconds
+
+    if (fileSource == null) {
+        respond(HttpStatusCode.BadRequest, "缺少文件。")
+        return
+    }
+
+    val displayName = sanitizeUploadFilename(rawFilename)
+    val safeExt = extractSafeExtension(displayName)
+    val storageFileName = if (safeExt != null) "${Uuid.random()}.$safeExt" else Uuid.random().toString()
+    val filePath = Path(Config.UPLOAD_DIR, "file", storageFileName).toString()
+
+    val saveStart = TimeSource.Monotonic.markNow()
+    val savedSize = try {
+        saveStreamToFile(fileSource, filePath)
+    } catch (e: Exception) {
+        runCatching { removeFile(filePath) }
+        currentLogger().error("failed to save uploaded file (multipartMs=$multipartMs)", e)
+        respond(HttpStatusCode.InternalServerError, "文件保存失败。")
+        return
+    }
+    val saveMs = saveStart.elapsedNow().inWholeMilliseconds
+
+    if (savedSize <= 0L) {
+        runCatching { removeFile(filePath) }
+        respond(HttpStatusCode.BadRequest, "不能上传空文件。")
+        return
+    }
+
+    val url = "/attachments/file/$storageFileName"
+    val roomId = requireRoomId()
+    val userId = requireSession().userId
+    val extra = MessageExtra.File(
+        url = url,
+        name = displayName,
+        size = savedSize,
+        mimeType = mimeType,
+    )
+
+    val dbStart = TimeSource.Monotonic.markNow()
+    repo.recordMessage(
+        userId = userId,
+        msg = "[文件] $displayName",
+        roomId = roomId,
+        type = MessageType.File,
+        extra = extra,
+    )
+    val dbMs = dbStart.elapsedNow().inWholeMilliseconds
+    val totalMs = totalStart.elapsedNow().inWholeMilliseconds
+
+    currentLogger().info("[file] upload room=$roomId name=$displayName size=$savedSize multipartMs=$multipartMs saveMs=$saveMs dbMs=$dbMs totalMs=$totalMs")
+
+    respond(HttpStatusCode.OK)
+}
+
+private fun sanitizeUploadFilename(raw: String?): String {
+    val base = raw
+        ?.substringAfterLast('/')
+        ?.substringAfterLast('\\')
+        ?.filterNot { it == '\r' || it == '\n' || it == '\u0000' }
+        ?.trim()
+        .orEmpty()
+    if (base.isEmpty()) return "file"
+    return if (base.length > 200) base.take(200) else base
+}
+
+private fun extractSafeExtension(filename: String): String? {
+    val ext = filename.substringAfterLast('.', missingDelimiterValue = "")
+    if (ext.isEmpty() || ext.length > 16) return null
+    return ext.takeIf { it.all { ch -> ch.isLetterOrDigit() } }
 }
 
 private suspend fun saveStreamToFile(source: AsyncSource, filePath: String): Long {

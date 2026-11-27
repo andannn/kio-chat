@@ -63,6 +63,15 @@ sealed interface MessageExtra {
         @SerialName("durationMs") val durationMs: Long,
         @SerialName("size") val size: Long? = null,
     ) : MessageExtra
+
+    @Serializable
+    @SerialName("file")
+    data class File(
+        @SerialName("url") val url: String,
+        @SerialName("name") val name: String,
+        @SerialName("size") val size: Long,
+        @SerialName("mimeType") val mimeType: String? = null,
+    ) : MessageExtra
 }
 
 @Serializable

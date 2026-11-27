@@ -270,6 +270,21 @@ fun TagConsumer<*>.chatRoomContent(room: Room, isOwner: Boolean = false) {
                             raw("""<svg class="google-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M5 21q-.825 0-1.412-.587T3 19V5q0-.825.588-1.412T5 3h14q.825 0 1.413.588T21 5v14q0 .825-.587 1.413T19 21zm0-2h14V5H5zm1-2h12l-3.75-5-3 4L9 13.5zm-1 2V5z"/></svg>""")
                         }
                     }
+                    input(type = InputType.file, classes = "image-file-input") {
+                        id = "file-upload-input"
+                        attributes["style"] = "display: none;"
+                        attributes["data-upload-url"] = "$messagePath/file"
+                        attributes["onchange"] = "window.handleChatFileUpload && window.handleChatFileUpload(this)"
+                    }
+                    button(type = ButtonType.button, classes = "composer-image-button") {
+                        id = "file-button"
+                        attributes["aria-label"] = "发送文件"
+                        attributes["title"] = "发送文件"
+                        attributes["onclick"] = "document.getElementById('file-upload-input')?.click()"
+                        unsafe {
+                            raw("""<svg class="google-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M16.5 6v11.5q0 2.275-1.613 3.888T11 23t-3.887-1.612T5.5 17.5V5q0-1.65 1.175-2.825T9.5 1t2.825 1.175T13.5 5v10.5q0 1.05-.725 1.775T11 18t-1.775-.725T8.5 15.5V6H10v9.5q0 .425.288.713T11 16.5t.713-.288T12 15.5V5q0-1.05-.725-1.775T9.5 2.5t-1.775.725T7 5v12.5q0 1.65 1.175 2.825T11 21.5t2.825-1.175T15 17.5V6z"/></svg>""")
+                        }
+                    }
                     button(type = ButtonType.button, classes = "composer-image-button composer-voice-button") {
                         id = "voice-record-button"
                         attributes["aria-label"] = "录制语音"

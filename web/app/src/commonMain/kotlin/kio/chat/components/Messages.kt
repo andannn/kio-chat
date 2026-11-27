@@ -53,6 +53,25 @@ private fun ARTICLE.messageItem(message: Message, isMine: Boolean, roomId: Long)
                     }
                 }
             }
+            is MessageExtra.File -> {
+                a(href = extra.url, classes = "message-file") {
+                    attributes["download"] = extra.name
+                    div(classes = "message-file-icon") {
+                        unsafe {
+                            raw("""<svg class="google-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6q-.825 0-1.412.588T4 4v16q0 .825.588 1.413T6 22h12q.825 0 1.413-.587T20 20V8zm2 16H8v-2h8zm0-4H8v-2h8zm-3-5V3.5L18.5 9z"/></svg>""")
+                        }
+                    }
+                    div(classes = "message-file-info") {
+                        span(classes = "message-file-name") { +extra.name }
+                        span(classes = "message-file-size") { +formatFileSize(extra.size) }
+                    }
+                    div(classes = "message-file-download") {
+                        unsafe {
+                            raw("""<svg class="google-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 16l-5-5 1.4-1.45 2.6 2.6V4h2v8.15l2.6-2.6L17 11zm-6 4q-.825 0-1.412-.587T4 18v-3h2v3h12v-3h2v3q0 .825-.587 1.413T18 20z"/></svg>""")
+                        }
+                    }
+                }
+            }
             null -> {
                 p(classes = "message-text") {
                     +message.text
@@ -162,4 +181,11 @@ fun TagConsumer<*>.chatMessageEvent(event: UserChatEvent, userId: Long) {
             hxSwapOob = "delete"
         }
     }
+}
+
+private fun formatFileSize(bytes: Long): String {
+    if (bytes < 1024L) return "$bytes B"
+    if (bytes < 1024L * 1024L) return "${bytes / 1024L} KB"
+    val tenths = (bytes * 10L) / (1024L * 1024L)
+    return "${tenths / 10L}.${tenths % 10L} MB"
 }
