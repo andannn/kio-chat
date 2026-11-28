@@ -87,8 +87,8 @@ android {
         }
         create("prod") {
             dimension = "environment"
-            buildConfigField("String", "BASE_URL", "\"https://133.117.75.202:7879\"")
-            buildConfigField("String", "BASE_WS_URL", "\"wss://133.117.75.202:7879\"")
+            buildConfigField("String", "BASE_URL", "\"https://kchat.andannn.duckdns.org\"")
+            buildConfigField("String", "BASE_WS_URL", "\"wss://kchat.andannn.duckdns.org\"")
         }
     }
 }
